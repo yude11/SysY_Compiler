@@ -1,4 +1,4 @@
-// 参照文档https://pku-minic.github.io/online-doc/#/misc-app-ref/libkoopa
+// 数据结构设计参照文档https://pku-minic.github.io/online-doc/#/misc-app-ref/libkoopa
 #pragma once
 
 #include <vector>
@@ -9,10 +9,6 @@
 
 #include "visitor.h"
 
-enum Mode {
-  IR,
-  BINARY,
-};
 
 class Type {
   public:
@@ -106,10 +102,6 @@ class Program {
 
     void Accept(IRVisitor* visitor) {
       visitor->Visit(this);
-    }
-
-    void NewValue() {
-      // TODO
     }
 
     std::vector<Value*> values;

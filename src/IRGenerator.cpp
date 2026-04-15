@@ -33,12 +33,11 @@ void IRgenerator::Visit(BlockAST* ast) {
 }
 
 void IRgenerator::Visit(StmtAST* ast) {
-  // std::cout << "StmtAST { " << ast->type << " }" << std::endl;
-  current_value  = new Value_RETURN(ast->number->num);
+  ast->number->Accept(this);
 }
 
 void IRgenerator::Visit(NumberAST* ast) {
-  // std::cout << "NumberAST { " << ast->type << " }" << std::endl;
+  current_value = new Value_RETURN(ast->num);
 }
 
 void IRgenerator::OutputIR(std::string output) {

@@ -4,6 +4,7 @@
 #include <string>
 #include <iostream>
 #include <cassert>
+#include <variant>
 
 #include "IR.h"
 #include "visitor.h"
@@ -110,5 +111,109 @@ class StmtAST : public BaseAST {
     std::cout << " }";
   }
 
-  std::unique_ptr<NumberAST> number;
+  std::unique_ptr<BaseAST> number;
+};
+
+class UnaryOpAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    // visitor->Visit(this);
+  }
+
+  void Dump() const override {
+    std::cout << "UnaryOpAST { ";
+    switch (unaryop) {
+    case NEG:
+      std::cout << "NEG";
+      break;
+    case NOT:
+      std::cout << "NOT";
+      break;
+    case POS:
+      std::cout << "POS";
+      break;
+    }
+    std::cout << " }";
+  }
+
+  enum UnaryOp {
+    NEG,
+    NOT,
+    POS,
+  };
+  void SetOp(const char& op) { 
+    switch (op) {
+    case '-':
+      unaryop = NEG;
+      break;
+    case '!':
+      unaryop = NOT;
+      break;
+    case '+':
+      unaryop = POS;
+      break;
+    }
+  }
+  UnaryOp unaryop;
+};
+
+// PrimaryExp = ( Exp ) | Number
+class PrimaryExpAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    // visitor->Visit(this);
+  }
+
+  void Dump() const override {
+    std::cout << "PrimaryExpAST { ";
+    // number->Dump();
+    std::cout << " }";
+  }
+
+  // 用来指示mem的类型
+  int type = -1;
+
+  std::unique_ptr<BaseAST> mem;
+ };
+
+// UnaryExp = PrimaryExp | UnaryOp UnaryExp
+class UnaryExpAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      // visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "UnaryExprAST { ";
+      // unary_op->Dump();
+      std::cout << " }";
+    }
+
+    // 用来表示mem的类型
+    int type = -1;
+
+    struct UnaryExp {
+      std::unique_ptr<BaseAST> unary_op;
+      std::unique_ptr<BaseAST> unary_exp;
+    };
+
+    std::variant<std::unique_ptr<BaseAST>
+                , UnaryExp> mem;
+    
+};
+
+// Exp = UnaryExp
+class ExpAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      // visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "ExpAST { ";
+      unary_exp->Dump();
+      std::cout << " }";
+    }
+
+    std::unique_ptr<BaseAST> unary_exp;
 };

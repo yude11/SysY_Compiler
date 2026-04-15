@@ -45,12 +45,14 @@ int main(int argc, const char *argv[]) {
   cout << endl;
   cout << endl;
 
-  // 生成 内存IR表示并输出到文件
+  // 生成 内存IR表示
   IRgenerator irgen;
   ast->Accept(&irgen);
   if (strcmp(mode, "-koopa") == 0) {
+    // 输出koopa IR
     irgen.OutputIR(output);
   } else if (strcmp(mode, "-riscv") == 0) {
+    // 输出riscv assembly
     AssemblyGenerator asmgen(output);
     irgen.program->Accept(&asmgen);
   }
