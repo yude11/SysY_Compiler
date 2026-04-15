@@ -100,7 +100,7 @@ Block
 Stmt
   : RETURN Number ';' {
     auto ast = new StmtAST();
-    ast->number = unique_ptr<BaseAST>($2);;
+    ast->number = unique_ptr<NumberAST>(static_cast<NumberAST*>($2));
     $$ = ast;
   }
   ;

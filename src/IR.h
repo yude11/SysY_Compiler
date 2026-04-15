@@ -5,6 +5,14 @@
 #include <string>
 #include <iostream>
 #include <cassert>
+#include <fstream>
+
+#include "visitor.h"
+
+enum Mode {
+  IR,
+  BINARY,
+};
 
 class Type {
   public:
@@ -26,7 +34,7 @@ class Value {
     
     virtual ~Value() = default;
     
-    virtual void Dump() const = 0;
+    virtual void Accept(IRVisitor* visitor) = 0;
 
     std::string name;
     Type type;
@@ -36,9 +44,9 @@ class Value {
 class Value_RETURN : public Value {
   public:
     Value_RETURN(int val) : Value("return", "i32"), val(val) {}
-    
-    void Dump() const override {
-      std::cout << "  ret " << val << std::endl;
+
+    void Accept(IRVisitor* visitor) override {
+      visitor->Visit(this);
     }
     
     int val;
@@ -55,17 +63,8 @@ class BasicBlock {
       }
     }
 
-    Value* NewStmt(int val) {
-      auto stmt = new Value_RETURN(val);
-      stmts.push_back(stmt);
-      return stmt;
-    }
-
-    void Dump() const {
-      std::cout << "%entry:" << std::endl;
-      for (auto stmt : stmts) {
-        stmt->Dump();
-      }
+    void Accept(IRVisitor* visitor) {
+      visitor->Visit(this);
     }
 
     std::string name;
@@ -83,19 +82,8 @@ class Function {
       }
     }
 
-    BasicBlock* NewBlock(std::string name) {
-      std::cout << "AddBlock: "  << std::endl;
-      auto block = new BasicBlock(name);
-      blocks.push_back(block);
-      return block;
-    }
-
-    void Dump() const {
-      std::cout << "fun @" << name << "(): "  << type.name << " {" << std::endl;
-      for (auto block : blocks) {
-        block->Dump();
-      }
-      std::cout << "}" << std::endl;
+    void Accept(IRVisitor* visitor) {
+      visitor->Visit(this);
     }
 
     Type type;
@@ -116,16 +104,8 @@ class Program {
       }
     }
 
-    Function* NewFunc(std::string type, std::string name, std::vector<Type*> params) {
-      auto func = new Function(type, name, params);
-      functions.emplace_back(func);
-      return func;
-    }
-
-    void Dump() const {
-      for (auto func : functions) {
-        func->Dump();
-      }
+    void Accept(IRVisitor* visitor) {
+      visitor->Visit(this);
     }
 
     void NewValue() {

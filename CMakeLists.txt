@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.13)
 project(compiler)
 
+# 导出编译命令数据库（用于IDE和工具集成）
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # settings
 # set to OFF to enable C mode
 set(CPP_MODE ON)

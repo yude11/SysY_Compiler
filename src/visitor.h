@@ -1,8 +1,10 @@
 #pragma once
 
 #include <memory>
-
-#include "IR.h"
+#include <string>
+#include <iostream>
+#include <cassert>
+#include <fstream>
 
 class BaseAST;
 class CompUnitAST;
@@ -12,8 +14,9 @@ class BlockAST;
 class NumberAST;
 class StmtAST;
 
+class Visitor {};
 
-class ASTVisitor {
+class ASTVisitor : public Visitor {
   public:
     virtual ~ASTVisitor() {}
     virtual void Visit(CompUnitAST* ast) = 0;
@@ -24,21 +27,16 @@ class ASTVisitor {
     virtual void Visit(StmtAST* ast) = 0;
 };
 
-class IRgenerator : public ASTVisitor {
+class Value;
+class BasicBlock;
+class Function;
+class Program;
+
+class IRVisitor : public Visitor {
   public:
-    IRgenerator();
-    ~IRgenerator();
-    void Visit(CompUnitAST* ast) override;
-    void Visit(FuncTypeAST* ast) override;
-    void Visit(FuncDefAST* ast) override;
-    void Visit(BlockAST* ast) override;
-    void Visit(NumberAST* ast) override;
-    void Visit(StmtAST* ast) override;
-
-    void GenerateIR();
-
-    Program* program;
-    Function* current_func;
-    BasicBlock* current_block;
-    Value* current_value;
+    virtual ~IRVisitor() {}
+    virtual void Visit(Value* val) = 0;
+    virtual void Visit(BasicBlock* block) = 0;
+    virtual void Visit(Function* func) = 0;
+    virtual void Visit(Program* program) = 0;
 };

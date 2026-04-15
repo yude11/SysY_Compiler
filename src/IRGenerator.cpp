@@ -1,4 +1,4 @@
-#include "visitor.h"
+#include "IRGenerator.h"
 #include "IR.h"
 #include "AST.h"
 
@@ -34,16 +34,51 @@ void IRgenerator::Visit(BlockAST* ast) {
 
 void IRgenerator::Visit(StmtAST* ast) {
   // std::cout << "StmtAST { " << ast->type << " }" << std::endl;
-  current_value  = new Value_RETURN(0);
+  current_value  = new Value_RETURN(ast->number->num);
 }
 
 void IRgenerator::Visit(NumberAST* ast) {
   // std::cout << "NumberAST { " << ast->type << " }" << std::endl;
 }
 
-void IRgenerator::GenerateIR() {
-  program->Dump();
+void IRgenerator::OutputIR(std::string output) {
+  IROutputer out(output);
+  program->Accept(&out);
 }
+
+IROutputer::IROutputer() {}
+
+IROutputer::IROutputer(std::string output) : fs(output, std::ios::out) {}
+
+IROutputer::~IROutputer() {}
+
+void IROutputer::Visit(Value* val) {
+  if (val->name == "return") {
+    fs << "  ret " << ((Value_RETURN*)val)->val << std::endl;
+  }
+}
+
+void IROutputer::Visit(BasicBlock* block) {
+  fs << "%entry: " << std::endl;
+  for (auto stmt : block->stmts) {
+    stmt->Accept(this);
+  }
+}
+
+void IROutputer::Visit(Function* func) {
+  fs << "fun @" << func->name << "(): " << func->type.name << " {" << std::endl;
+  for (auto block : func->blocks) {
+    block->Accept(this);
+  }
+  fs << "}" << std::endl;
+}
+
+void IROutputer::Visit(Program* program) {
+  for (auto func : program->functions) {
+    func->Accept(this);
+  }
+}
+
 
 
 

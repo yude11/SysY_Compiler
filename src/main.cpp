@@ -3,8 +3,14 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <fstream>
+#include <cstring>
+
 #include "AST.h"
 #include "IR.h"
+#include "IRGenerator.h"
+#include "AssemblyGenerator.h"
+
 
 
 using namespace std;
@@ -24,7 +30,6 @@ int main(int argc, const char *argv[]) {
   auto mode = argv[1];
   auto input = argv[2];
   auto output = argv[4];
-  cout << mode  << " " << input << " " << output << endl;
 
   // 打开输入文件, 并且指定 lexer 在解析的时候读取这个文件
   yyin = fopen(input, "r");
@@ -40,9 +45,14 @@ int main(int argc, const char *argv[]) {
   cout << endl;
   cout << endl;
 
-  // 生成 IR
+  // 生成 内存IR表示并输出到文件
   IRgenerator irgen;
   ast->Accept(&irgen);
-  irgen.GenerateIR();
+  if (strcmp(mode, "-koopa") == 0) {
+    irgen.OutputIR(output);
+  } else if (strcmp(mode, "-riscv") == 0) {
+    AssemblyGenerator asmgen(output);
+    irgen.program->Accept(&asmgen);
+  }
   return 0;
 }

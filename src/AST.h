@@ -110,5 +110,5 @@ class StmtAST : public BaseAST {
     std::cout << " }";
   }
 
-  std::unique_ptr<BaseAST> number;
+  std::unique_ptr<NumberAST> number;
 };
