@@ -110,58 +110,54 @@ class StmtAST : public BaseAST {
     number->Dump();
     std::cout << " }";
   }
-
+  
+  Stmt_Type type;
   std::unique_ptr<BaseAST> number;
 };
 
 class UnaryOpAST : public BaseAST {
  public:
   void Accept(ASTVisitor *visitor) override {
-    // visitor->Visit(this);
+    visitor->Visit(this);
   }
 
   void Dump() const override {
     std::cout << "UnaryOpAST { ";
     switch (unaryop) {
-    case NEG:
+    case Unary_Op_Type::AST_UNARY_OP_NEG:
       std::cout << "NEG";
       break;
-    case NOT:
+    case Unary_Op_Type::AST_UNARY_OP_NOT:
       std::cout << "NOT";
       break;
-    case POS:
+    case Unary_Op_Type::AST_UNARY_OP_POS:
       std::cout << "POS";
       break;
     }
     std::cout << " }";
   }
 
-  enum UnaryOp {
-    NEG,
-    NOT,
-    POS,
-  };
   void SetOp(const char& op) { 
     switch (op) {
     case '-':
-      unaryop = NEG;
+      unaryop = Unary_Op_Type::AST_UNARY_OP_NEG;
       break;
     case '!':
-      unaryop = NOT;
+      unaryop = Unary_Op_Type::AST_UNARY_OP_NOT;
       break;
     case '+':
-      unaryop = POS;
+      unaryop = Unary_Op_Type::AST_UNARY_OP_POS;
       break;
     }
   }
-  UnaryOp unaryop;
+  Unary_Op_Type unaryop;
 };
 
 // PrimaryExp = ( Exp ) | Number
 class PrimaryExpAST : public BaseAST {
  public:
   void Accept(ASTVisitor *visitor) override {
-    // visitor->Visit(this);
+    visitor->Visit(this);
   }
 
   void Dump() const override {
@@ -180,7 +176,7 @@ class PrimaryExpAST : public BaseAST {
 class UnaryExpAST : public BaseAST {
   public:
     void Accept(ASTVisitor *visitor) override {
-      // visitor->Visit(this);
+      visitor->Visit(this);
     }
 
     void Dump() const override {
@@ -206,7 +202,7 @@ class UnaryExpAST : public BaseAST {
 class ExpAST : public BaseAST {
   public:
     void Accept(ASTVisitor *visitor) override {
-      // visitor->Visit(this);
+      visitor->Visit(this);
     }
 
     void Dump() const override {

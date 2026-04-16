@@ -10,6 +10,7 @@
 #include "IR.h"
 #include "IRGenerator.h"
 #include "AssemblyGenerator.h"
+#include "log.h"
 
 
 
@@ -48,6 +49,7 @@ int main(int argc, const char *argv[]) {
   // 生成 内存IR表示
   IRgenerator irgen;
   ast->Accept(&irgen);
+  LOG("IR generated");
   if (strcmp(mode, "-koopa") == 0) {
     // 输出koopa IR
     irgen.OutputIR(output);

@@ -1,7 +1,9 @@
 %code requires {
   #include <memory>
   #include <string>
+
   #include "AST.h"
+  #include "type.h"
 }
 
 %{
@@ -85,7 +87,7 @@ FuncDef
 // 同上, 不再解释
 FuncType
   : INT {
-    $$ = new FuncTypeAST("int");
+    $$ = new FuncTypeAST("i32");
   }
   ;
 
@@ -98,20 +100,16 @@ Block
   ;
 
 Stmt
-  : RETURN Number ';' {
+  : RETURN Exp ';' {
     auto ast = new StmtAST();
-    ast->number = unique_ptr<NumberAST>(static_cast<NumberAST*>($2));
-    $$ = ast;
-  }
-  | RETURN Exp ";" {
-    auto ast = new StmtAST();
+    ast->type = Stmt_Type::AST_STMT_RETURN;
     ast->number = unique_ptr<BaseAST>($2);
     $$ = ast;
   }
   ;
 
 Exp
-  : UnaryExp ";" {
+  : UnaryExp {
     auto ast = new ExpAST();
     ast->unary_exp = unique_ptr<BaseAST>($1);
   }
@@ -133,7 +131,7 @@ UnaryExp
   ;
 
 PrimaryExp
-  : "(" Exp ")" {
+  : '(' Exp ')' {
     auto ast = new PrimaryExpAST();
     ast->type = 0;
     ast->mem = unique_ptr<BaseAST>($2);
@@ -148,17 +146,17 @@ PrimaryExp
   ;
 
 UnaryOp
-  : "+" {
+  : '+' {
     auto ast = new UnaryOpAST();
     ast->SetOp('+');
     $$ = ast;
   }
-  | "-" {
+  | '-' {
     auto ast = new UnaryOpAST();
     ast->SetOp('-');
     $$ = ast;
   }
-  | "!" {
+  | '!' {
     auto ast = new UnaryOpAST();
     ast->SetOp('!');
     $$ = ast;

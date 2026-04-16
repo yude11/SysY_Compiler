@@ -1,10 +1,4 @@
-int main() { 
-  // hello
-  /*aaaaaaaaaa
-  */
-  /*
-  aaaaaaaaaa
-  */
-  // aaaa
-  return 0x4; 
+int main() {
+  return +(- -!6);
+  // return +6;
 }

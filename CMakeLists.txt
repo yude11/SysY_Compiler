@@ -14,12 +14,12 @@ else()
 endif()
 message(STATUS "Flex/Bison generated source file extension: ${FB_EXT}")
 
-# enable all warnings
+# enable all warnings and debug symbols
 if(MSVC)
-  add_compile_options(/W3)
+  add_compile_options(/W3 /Zi)
 else()
   # disable warnings caused by old version of Flex
-  add_compile_options(-Wall -Wno-register)
+  add_compile_options(-Wall -Wno-register -g)
 endif()
 
 # options about libraries and includes

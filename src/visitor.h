@@ -13,6 +13,12 @@ class FuncDefAST;
 class BlockAST;
 class NumberAST;
 class StmtAST;
+class ExpAST;
+class PrimaryExpAST;
+class UnaryExpAST;
+class UnaryOpAST;
+
+
 
 class Visitor {};
 
@@ -25,9 +31,17 @@ class ASTVisitor : public Visitor {
     virtual void Visit(BlockAST* ast) = 0;
     virtual void Visit(NumberAST* ast) = 0;
     virtual void Visit(StmtAST* ast) = 0;
+    virtual void Visit(ExpAST* ast) = 0;
+    virtual void Visit(PrimaryExpAST* ast) = 0;
+    virtual void Visit(UnaryExpAST* ast) = 0;
+    virtual void Visit(UnaryOpAST* ast) = 0;
 };
 
 class Value;
+class Value_RETURN;
+class Value_INTEGER;
+class Value_BINARY;
+class Value_REF;
 class BasicBlock;
 class Function;
 class Program;
@@ -35,7 +49,10 @@ class Program;
 class IRVisitor : public Visitor {
   public:
     virtual ~IRVisitor() {}
-    virtual void Visit(Value* val) = 0;
+    virtual void Visit(Value_RETURN* return_val) = 0;
+    virtual void Visit(Value_INTEGER* integer) = 0;
+    virtual void Visit(Value_BINARY* binary) = 0;
+    virtual void Visit(Value_REF* ref) = 0;
     virtual void Visit(BasicBlock* block) = 0;
     virtual void Visit(Function* func) = 0;
     virtual void Visit(Program* program) = 0;
