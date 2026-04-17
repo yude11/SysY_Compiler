@@ -28,8 +28,6 @@ class Value {
     
     virtual void Accept(IRVisitor* visitor) = 0;
 
-    virtual std::unique_ptr<Value> Clone() = 0;
-
     // 表示Value的名字，如%0
     std::string name;
     // 表示Value的类型
@@ -40,11 +38,7 @@ class Value {
 
 class Value_INTEGER : public Value {
   public:
-    Value_INTEGER(int val) : Value("null", Value_Type::KOOPA_RVT_INTEGER), val(val) {}
-
-    std::unique_ptr<Value> Clone() override {
-      return std::make_unique<Value_INTEGER>(val);
-    }
+    Value_INTEGER(int val) : Value(std::to_string(val), Value_Type::KOOPA_RVT_INTEGER), val(val) {}
 
     void Accept(IRVisitor* visitor) override {
       visitor->Visit(this);
@@ -56,11 +50,7 @@ class Value_INTEGER : public Value {
 class Value_REF : public Value {
  public:
   Value_REF(std::string name) 
-    : Value(name, Value_Type::KOOPA_RVT_INTEGER) {}  // 类型可以是 INTEGER 或通用类型
-
-  std::unique_ptr<Value> Clone() override {
-    return std::make_unique<Value_REF>(name);
-  }
+    : Value(name, Value_Type::KOOPA_RVT_REF) {}  // 类型可以是 INTEGER 或通用类型
 
   void Accept(IRVisitor* visitor) override {
     visitor->Visit(this);
@@ -70,12 +60,8 @@ class Value_REF : public Value {
 // 二元操作语句
 class Value_BINARY : public Value {
   public:
-    Value_BINARY(std::string name, std::unique_ptr<Value> lhs, std::unique_ptr<Value> rhs, Binary_Op_Type op)
-     : Value(name, Value_Type::KOOPA_RVT_BINARY), type(op), lhs(std::move(lhs)), rhs(std::move(rhs)) {}
-
-    std::unique_ptr<Value> Clone() override {
-      return std::make_unique<Value_BINARY>(name, lhs->Clone(), rhs->Clone(), type);
-    }
+    Value_BINARY(std::string name, std::shared_ptr<Value> lhs, std::shared_ptr<Value> rhs, Binary_Op_Type op)
+     : Value(name, Value_Type::KOOPA_RVT_BINARY), type(op), lhs(lhs), rhs(rhs) {}
 
     void Accept(IRVisitor* visitor) override {
       visitor->Visit(this);
@@ -83,25 +69,21 @@ class Value_BINARY : public Value {
 
     // 二元操作符类型
     Binary_Op_Type type;
-    std::unique_ptr<Value> lhs;
-    std::unique_ptr<Value> rhs;
+    std::shared_ptr<Value> lhs;
+    std::shared_ptr<Value> rhs;
 };
 
 // 返回语句
 class Value_RETURN : public Value {
   public:
-    Value_RETURN(std::unique_ptr<Value> val) 
-     : Value("null", Value_Type::KOOPA_RVT_RETURN), val(std::move(val)) {}
-
-    std::unique_ptr<Value> Clone() override {
-      return std::make_unique<Value_RETURN>(val->Clone());
-    }
+    Value_RETURN(std::shared_ptr<Value> val) 
+     : Value("null", Value_Type::KOOPA_RVT_RETURN), val(val) {}
 
     void Accept(IRVisitor* visitor) override {
       visitor->Visit(this);
     }
 
-    std::unique_ptr<Value> val;
+    std::shared_ptr<Value> val;
 };
 
 // 基本块
@@ -116,7 +98,7 @@ class BasicBlock {
     }
 
     std::string name;
-    std::vector<std::unique_ptr<Value>> stmts;
+    std::vector<std::shared_ptr<Value>> stmts;
 };
 
 // 函数

@@ -45,7 +45,7 @@ using namespace std;
 
 // 非终结符的类型定义
 // %type <str_val> 
-%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp UnaryOp UnaryExp
+%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp UnaryOp UnaryExp AddExp MulExp AddOp MulOp
 
 
 
@@ -109,11 +109,39 @@ Stmt
   ;
 
 Exp
-  : UnaryExp {
+  : AddExp {
     auto ast = new ExpAST();
-    ast->unary_exp = unique_ptr<BaseAST>($1);
+    ast->add_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
   }
-  ;
+
+MulExp
+  : UnaryExp {
+    auto ast = new MulExpAST();
+    ast->type = 0;
+    ast->mem = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | MulExp MulOp UnaryExp {
+    auto ast = new MulExpAST();
+    ast->type = 1;
+    ast->mem = MulExpAST::MulExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
+    $$ = ast;
+  }
+
+AddExp
+  : MulExp {
+    auto ast = new AddExpAST();
+    ast->type = 0;
+    ast->mem = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | AddExp AddOp MulExp {
+    auto ast = new AddExpAST();
+    ast->type = 1;
+    ast->mem = AddExpAST::AddExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
+    $$ = ast;
+  }
 
 UnaryExp
   : PrimaryExp {
@@ -147,18 +175,37 @@ PrimaryExp
 
 UnaryOp
   : '+' {
-    auto ast = new UnaryOpAST();
-    ast->SetOp('+');
+    auto ast = new UnaryOpAST(Op_Type::AST_UNARY_OP_POS);
     $$ = ast;
   }
   | '-' {
-    auto ast = new UnaryOpAST();
-    ast->SetOp('-');
+    auto ast = new UnaryOpAST(Op_Type::AST_UNARY_OP_NEG);
     $$ = ast;
   }
   | '!' {
-    auto ast = new UnaryOpAST();
-    ast->SetOp('!');
+    auto ast = new UnaryOpAST(Op_Type::AST_UNARY_OP_NOT);
+    $$ = ast;
+  }
+  ;
+
+MulOp
+  : '*' {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_MUL);
+    $$ = ast;
+  }
+  | '/' {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_DIV);
+    $$ = ast;
+  }
+  ;
+
+AddOp
+  : '+' {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_ADD);
+    $$ = ast;
+  }
+  | '-' {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_SUB);
     $$ = ast;
   }
   ;

@@ -17,7 +17,10 @@ class ExpAST;
 class PrimaryExpAST;
 class UnaryExpAST;
 class UnaryOpAST;
-
+class BinaryOpAST;
+class OpAST;
+class AddExpAST;
+class MulExpAST;
 
 
 class Visitor {};
@@ -34,7 +37,11 @@ class ASTVisitor : public Visitor {
     virtual void Visit(ExpAST* ast) = 0;
     virtual void Visit(PrimaryExpAST* ast) = 0;
     virtual void Visit(UnaryExpAST* ast) = 0;
+    virtual void Visit(OpAST* ast) = 0;
     virtual void Visit(UnaryOpAST* ast) = 0;
+    virtual void Visit(BinaryOpAST* ast) = 0;
+    virtual void Visit(AddExpAST* ast) = 0;
+    virtual void Visit(MulExpAST* ast) = 0;
 };
 
 class Value;

@@ -37,6 +37,8 @@ typedef enum {
   KOOPA_RVT_CALL,
   /// Function return.
   KOOPA_RVT_RETURN,
+  /// Reference(new define).
+  KOOPA_RVT_REF,
 } Value_Type;
 
 // 二元操作符的类型
@@ -78,6 +80,7 @@ typedef enum {
 } Binary_Op_Type;
 
 // AST中的Type相关的类型定义
+// 操作符的类型
 typedef enum {
     /// Negation.
     AST_UNARY_OP_NEG,
@@ -85,9 +88,19 @@ typedef enum {
     AST_UNARY_OP_NOT,
     /// Positive.
     AST_UNARY_OP_POS,
-} Unary_Op_Type;
+    /// Multiplication.
+    AST_BINARY_OP_MUL,
+    /// Division.
+    AST_BINARY_OP_DIV,
+    /// Addition.
+    AST_BINARY_OP_ADD,
+    /// Subtraction.
+    AST_BINARY_OP_SUB,
+
+} Op_Type;
 
 typedef enum {
+    /// Return.
     AST_STMT_RETURN,
     AST_STMT_ASSIGN,
 } Stmt_Type;

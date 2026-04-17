@@ -24,7 +24,11 @@ class IRgenerator : public ASTVisitor {
     void Visit(ExpAST* ast) override;
     void Visit(PrimaryExpAST* ast) override;
     void Visit(UnaryExpAST* ast) override;
+    void Visit(OpAST* ast) override;
     void Visit(UnaryOpAST* ast) override;
+    void Visit(BinaryOpAST* ast) override;
+    void Visit(AddExpAST* ast) override;
+    void Visit(MulExpAST* ast) override;
 
     // 输出IR表示
     void OutputIR(std::string output);
@@ -32,7 +36,7 @@ class IRgenerator : public ASTVisitor {
     std::unique_ptr<Program> program;
     std::unique_ptr<Function> current_func;
     std::unique_ptr<BasicBlock> current_block;
-    std::stack<std::unique_ptr<Value>> current_value_stack;
+    std::stack<std::shared_ptr<Value>> current_value_stack;
 
     // 表示临时变量的编号
     int count = 0;

@@ -115,42 +115,48 @@ class StmtAST : public BaseAST {
   std::unique_ptr<BaseAST> number;
 };
 
-class UnaryOpAST : public BaseAST {
+class OpAST : public BaseAST {
+  public:
+    OpAST(Op_Type op) : op(op) {}
+
+    void Dump() const override {
+      std::cout << "OpAST: " << "{" << op << "}";
+    }
+
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+    Op_Type op;
+};
+
+class UnaryOpAST : public OpAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  UnaryOpAST(Op_Type op) : OpAST(op) {}
 
   void Dump() const override {
     std::cout << "UnaryOpAST { ";
-    switch (unaryop) {
-    case Unary_Op_Type::AST_UNARY_OP_NEG:
-      std::cout << "NEG";
-      break;
-    case Unary_Op_Type::AST_UNARY_OP_NOT:
-      std::cout << "NOT";
-      break;
-    case Unary_Op_Type::AST_UNARY_OP_POS:
-      std::cout << "POS";
-      break;
-    }
+    // unary_op->Dump();
     std::cout << " }";
   }
 
-  void SetOp(const char& op) { 
-    switch (op) {
-    case '-':
-      unaryop = Unary_Op_Type::AST_UNARY_OP_NEG;
-      break;
-    case '!':
-      unaryop = Unary_Op_Type::AST_UNARY_OP_NOT;
-      break;
-    case '+':
-      unaryop = Unary_Op_Type::AST_UNARY_OP_POS;
-      break;
-    }
+  void Accept(ASTVisitor *visitor) override {
+    visitor->Visit(this);
   }
-  Unary_Op_Type unaryop;
+};
+
+class BinaryOpAST : public OpAST {
+  public:
+    BinaryOpAST(Op_Type op) : OpAST(op) {}
+
+    void Dump() const override {
+      std::cout << "BinaryOpAST { ";
+      // binary_op->Dump();
+      std::cout << " }";
+    }
+
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
 };
 
 // PrimaryExp = ( Exp ) | Number
@@ -198,7 +204,7 @@ class UnaryExpAST : public BaseAST {
     
 };
 
-// Exp = UnaryExp
+// Exp = AddExp
 class ExpAST : public BaseAST {
   public:
     void Accept(ASTVisitor *visitor) override {
@@ -207,9 +213,55 @@ class ExpAST : public BaseAST {
 
     void Dump() const override {
       std::cout << "ExpAST { ";
-      unary_exp->Dump();
+      add_exp->Dump();
       std::cout << " }";
     }
 
+    std::unique_ptr<BaseAST> add_exp;
+};
+
+// AddExp : MulExp | AddExp AddOp MulExp
+class AddExpAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "AddExpAST { ";
+      // add_exp->Dump();
+      std::cout << " }";
+    }
+
+    int type = -1;
+    struct AddExp {
+      std::unique_ptr<BaseAST> add_exp;
+      std::unique_ptr<BaseAST> add_op;
+      std::unique_ptr<BaseAST> mul_exp;
+    };
+    std::variant<std::unique_ptr<BaseAST>
+                , AddExp> mem;
+};
+
+
+// MulExp =  UnaryExp | MulExp MulOp UnaryExp
+class MulExpAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    visitor->Visit(this);
+  }
+
+  void Dump() const override {
+    std::cout << "MulExpAST { ";
+    std::cout << " }";
+  }
+
+  int type = -1;
+  struct MulExp {
+    std::unique_ptr<BaseAST> mul_exp;
+    std::unique_ptr<BaseAST> mul_op;
     std::unique_ptr<BaseAST> unary_exp;
+  };
+  std::variant<std::unique_ptr<BaseAST>
+                , MulExp> mem;
 };
