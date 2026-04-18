@@ -27,8 +27,13 @@ class IRgenerator : public ASTVisitor {
     void Visit(OpAST* ast) override;
     void Visit(UnaryOpAST* ast) override;
     void Visit(BinaryOpAST* ast) override;
+    void Visit(LGBinaryOpAST* ast) override;
     void Visit(AddExpAST* ast) override;
     void Visit(MulExpAST* ast) override;
+    void Visit(LOrExpAST* ast) override;
+    void Visit(LAndExpAST* ast) override;
+    void Visit(EqExpAST* ast) override;
+    void Visit(RelExpAST* ast) override;
 
     // 输出IR表示
     void OutputIR(std::string output);

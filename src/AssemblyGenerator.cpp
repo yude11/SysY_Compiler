@@ -88,9 +88,16 @@ void AssemblyGenerator::Visit(Value_BINARY *binary) {
   switch (binary->type) {
     case Binary_Op_Type::KOOPA_RBO_EQ: {
       // 为当前Value分配寄存器
+      auto res = reg_allocator.Alloc(binary);
+      fs << " xor   " << res << ", " << l_r << ", " << r_r << std::endl;
+      fs << " seqz  " << res << ", " << res  << std::endl;
+      break;
+    }
+    case Binary_Op_Type::KOOPA_RBO_NOT_EQ: {
+      // 为当前Value分配寄存器
       reg_allocator.Copy(binary->lhs.get(), binary);
       fs << " xor   " << l_r << ", " << l_r << ", " << r_r << std::endl;
-      fs << " seqz  " << l_r << ", " << l_r  << std::endl;
+      fs << " snez  " << l_r << ", " << l_r  << std::endl;
       break;
     }
     case Binary_Op_Type::KOOPA_RBO_SUB: {
@@ -113,8 +120,52 @@ void AssemblyGenerator::Visit(Value_BINARY *binary) {
     }
     case Binary_Op_Type::KOOPA_RBO_ADD: {
       // 为右操作数分配寄存器
-      reg_allocator.Copy(binary->rhs.get(), binary);
-      fs << " add   " << r_r << ", " << l_r << ", " << r_r << std::endl;
+      auto res = reg_allocator.Alloc(binary);
+      fs << " add   " << res << ", " << l_r << ", " << r_r << std::endl;
+      break;
+    }
+    case Binary_Op_Type::KOOPA_RBO_MOD: {
+      // 为当前Value分配寄存器
+      auto res = reg_allocator.Alloc(binary); 
+      fs << " rem   " << res << ", " << l_r << ", " << r_r << std::endl;
+      break;
+    }
+    case Binary_Op_Type::KOOPA_RBO_OR: {
+      // 为右操作数分配寄存器
+      auto res = reg_allocator.Alloc(binary);
+      fs << " or    " << res << ", " << l_r << ", " << r_r << std::endl;
+      break;
+    }
+    case Binary_Op_Type::KOOPA_RBO_AND: {
+      // 为右操作数分配寄存器
+      auto res = reg_allocator.Alloc(binary);
+      fs << " and   " << res << ", " << l_r << ", " << r_r << std::endl;
+      break;
+    }
+    case Binary_Op_Type::KOOPA_RBO_GE: {
+      // 为当前Value分配寄存器
+      auto res = reg_allocator.Alloc(binary);
+      fs << " slt   " << res << ", " << l_r << ", " << r_r << std::endl;
+      fs << " xori  " << res << ", " << res << ", 1"<< std::endl;
+      break;
+    }
+    case Binary_Op_Type::KOOPA_RBO_LE: {
+      // 为当前Value分配寄存器
+      auto res = reg_allocator.Alloc(binary);
+      fs << " slt   " << res << ", " << r_r << ", " << l_r << std::endl;
+      fs << " xori  " << res << ", " << res << ", 1"<< std::endl;
+      break;
+    }
+    case Binary_Op_Type::KOOPA_RBO_LT: {
+      // 为当前Value分配寄存器
+      auto res = reg_allocator.Alloc(binary);
+      fs << " slt   " << res << ", " << l_r << ", " << r_r << std::endl;
+      break;
+    }
+    case Binary_Op_Type::KOOPA_RBO_GT: {
+      // 为当前Value分配寄存器
+      auto res = reg_allocator.Alloc(binary);
+      fs << " slt   " << res << ", " << r_r << ", " << l_r << std::endl;
       break;
     }
     default:

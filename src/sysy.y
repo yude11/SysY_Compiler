@@ -1,4 +1,5 @@
-%code requires {
+%code requires { 
+  // 声明在 .tab.hpp 中需要的头文件
   #include <memory>
   #include <string>
 
@@ -6,7 +7,8 @@
   #include "type.h"
 }
 
-%{
+%{ 
+// 复制到生成的 .tab.cpp 文件开头
 
 #include <iostream>
 #include <memory>
@@ -39,13 +41,17 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN
+%token INT RETURN GE LE EQ NE LAnd LOr
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
+
+
+
+
 // 非终结符的类型定义
 // %type <str_val> 
-%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp UnaryOp UnaryExp AddExp MulExp AddOp MulOp
+%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp LOrExp LAndExp EqExp RelExp UnaryExp AddExp MulExp UnaryOp AddOp MulOp RelOp LGOp
 
 
 
@@ -109,11 +115,71 @@ Stmt
   ;
 
 Exp
-  : AddExp {
+  : LOrExp {
     auto ast = new ExpAST();
-    ast->add_exp = unique_ptr<BaseAST>($1);
+    ast->l_or_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
+
+RelExp
+  : AddExp {
+    auto ast = new RelExpAST();
+    ast->type = 0;
+    ast->mem = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | RelExp RelOp AddExp {
+    auto ast = new RelExpAST();
+    ast->type = 1;
+    ast->mem = RelExpAST::RelExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
+    $$ = ast;
+  }
+  ;
+
+EqExp
+  : RelExp {
+    auto ast = new EqExpAST();
+    ast->type = 0;
+    ast->mem = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | EqExp RelOp RelExp {
+    auto ast = new EqExpAST();
+    ast->type = 1;
+    ast->mem = EqExpAST::EqExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
+    $$ = ast;
+  }
+  ;
+
+LAndExp
+  : EqExp {
+    auto ast = new LAndExpAST();
+    ast->type = 0;
+    ast->mem = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | LAndExp LGOp EqExp {
+    auto ast = new LAndExpAST();
+    ast->type = 1;
+    ast->mem = LAndExpAST::LAndExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
+    $$ = ast;
+  }
+  ;
+
+LOrExp
+  : LAndExp {
+    auto ast = new LOrExpAST();
+    ast->type = 0;
+    ast->mem = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | LOrExp LGOp LAndExp {
+    auto ast = new LOrExpAST();
+    ast->type = 1;
+    ast->mem = LOrExpAST::LOrExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
+    $$ = ast;
+  }
+  ;
 
 MulExp
   : UnaryExp {
@@ -173,6 +239,44 @@ PrimaryExp
   }
   ;
 
+RelOp
+  : '<' {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_LT);
+    $$ = ast;
+  }
+  | '>' {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_GT);
+    $$ = ast;
+  }
+  | LE {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_LE);
+    $$ = ast;
+  }
+  | GE {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_GE);
+    $$ = ast;
+  }
+  | EQ {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_EQ);
+    $$ = ast;
+  }
+  | NE {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_NE);
+    $$ = ast;
+  }
+  ;
+
+LGOp
+  : LAnd {
+    auto ast = new LGBinaryOpAST(Op_Type::AST_BINARY_OP_LA);
+    $$ = ast;
+  }
+  | LOr {
+    auto ast = new LGBinaryOpAST(Op_Type::AST_BINARY_OP_LO);
+    $$ = ast;
+  }
+  ;
+
 UnaryOp
   : '+' {
     auto ast = new UnaryOpAST(Op_Type::AST_UNARY_OP_POS);
@@ -195,6 +299,10 @@ MulOp
   }
   | '/' {
     auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_DIV);
+    $$ = ast;
+  }
+  | '%' {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_MOD);
     $$ = ast;
   }
   ;

@@ -159,6 +159,21 @@ class BinaryOpAST : public OpAST {
     }
 };
 
+class LGBinaryOpAST : public BinaryOpAST {
+  public:
+    LGBinaryOpAST(Op_Type op) : BinaryOpAST(op) {}
+
+    void Dump() const override {
+      std::cout << "LGBinaryOpAST { ";
+      // binary_op->Dump();
+      std::cout << " }";
+    }
+
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+};
+
 // PrimaryExp = ( Exp ) | Number
 class PrimaryExpAST : public BaseAST {
  public:
@@ -204,7 +219,7 @@ class UnaryExpAST : public BaseAST {
     
 };
 
-// Exp = AddExp
+// Exp = LOrExp
 class ExpAST : public BaseAST {
   public:
     void Accept(ASTVisitor *visitor) override {
@@ -213,11 +228,11 @@ class ExpAST : public BaseAST {
 
     void Dump() const override {
       std::cout << "ExpAST { ";
-      add_exp->Dump();
+      l_or_exp->Dump();
       std::cout << " }";
     }
 
-    std::unique_ptr<BaseAST> add_exp;
+    std::unique_ptr<BaseAST> l_or_exp;
 };
 
 // AddExp : MulExp | AddExp AddOp MulExp
@@ -253,6 +268,15 @@ class MulExpAST : public BaseAST {
 
   void Dump() const override {
     std::cout << "MulExpAST { ";
+    if (type == 0) {
+      std::get<std::unique_ptr<BaseAST>>(mem)->Dump();
+    } else {
+      std::get<MulExp>(mem).mul_exp->Dump();
+      std::cout << ", ";
+      std::get<MulExp>(mem).mul_op->Dump();
+      std::cout << ", ";
+      std::get<MulExp>(mem).unary_exp->Dump();
+    }
     std::cout << " }";
   }
 
@@ -265,3 +289,129 @@ class MulExpAST : public BaseAST {
   std::variant<std::unique_ptr<BaseAST>
                 , MulExp> mem;
 };
+
+
+// RelExp = AddExp | RelExp BinaryOp AddExp
+class RelExpAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    visitor->Visit(this);
+  }
+
+  void Dump() const override {
+    std::cout << "RelExpAST { ";
+    if (type == 0) {
+      std::get<std::unique_ptr<BaseAST>>(mem)->Dump();
+    } else {
+      std::get<RelExp>(mem).rel_exp->Dump();
+      std::cout << ", ";
+      std::get<RelExp>(mem).rel_op->Dump();
+      std::cout << ", ";
+      std::get<RelExp>(mem).add_exp->Dump();
+    }
+    std::cout << " }";
+  }
+
+  int type = -1;
+  struct RelExp {
+    std::unique_ptr<BaseAST> rel_exp;
+    std::unique_ptr<BaseAST> rel_op;
+    std::unique_ptr<BaseAST> add_exp;
+  };
+  std::variant<std::unique_ptr<BaseAST>
+                , RelExp> mem;
+};
+
+// EqExp = RelExp | EqExp BinaryOp RelExp
+class EqExpAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    visitor->Visit(this);
+  }
+
+  void Dump() const override {
+    std::cout << "EqExpAST { ";
+    if (type == 0) {
+      std::get<std::unique_ptr<BaseAST>>(mem)->Dump();
+    } else {
+      std::get<EqExp>(mem).eq_exp->Dump();
+      std::cout << ", ";
+      std::get<EqExp>(mem).eq_op->Dump();
+      std::cout << ", ";
+      std::get<EqExp>(mem).rel_exp->Dump();
+    }
+    std::cout << " }";
+  }
+
+  int type = -1;
+  struct EqExp {
+    std::unique_ptr<BaseAST> eq_exp;
+    std::unique_ptr<BaseAST> eq_op;
+    std::unique_ptr<BaseAST> rel_exp;
+  };
+  std::variant<std::unique_ptr<BaseAST>
+                , EqExp> mem;
+};
+
+// LAndExp = EqExp | LAndExp BinaryOp EqExp
+class LAndExpAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    visitor->Visit(this);
+  }
+
+  void Dump() const override {
+    std::cout << "LAndExpAST { ";
+    if (type == 0) {
+      std::get<std::unique_ptr<BaseAST>>(mem)->Dump();
+    } else {
+      std::get<LAndExp>(mem).l_and_exp->Dump();
+      std::cout << ", ";
+      std::get<LAndExp>(mem).l_and_op->Dump();
+      std::cout << ", ";
+      std::get<LAndExp>(mem).eq_exp->Dump();
+    }
+    std::cout << " }";
+  }
+
+  int type = -1;
+  struct LAndExp {
+    std::unique_ptr<BaseAST> l_and_exp;
+    std::unique_ptr<BaseAST> l_and_op;
+    std::unique_ptr<BaseAST> eq_exp;
+  };
+  std::variant<std::unique_ptr<BaseAST>
+                , LAndExp> mem;
+};
+               
+// LOrExp = LAndExp | LAndExp BinaryOp EqExp
+class LOrExpAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    visitor->Visit(this);
+  }
+
+  void Dump() const override {
+    std::cout << "LOrExpAST { ";
+    if (type == 0) {
+      std::get<std::unique_ptr<BaseAST>>(mem)->Dump();
+    } else {
+      std::get<LOrExp>(mem).l_and_exp->Dump();
+      std::cout << ", ";
+      std::get<LOrExp>(mem).l_or_op->Dump();
+      std::cout << ", ";
+      std::get<LOrExp>(mem).eq_exp->Dump();
+    }
+    std::cout << " }";
+  }
+
+  int type = -1;
+  struct LOrExp {
+    std::unique_ptr<BaseAST> l_and_exp;
+    std::unique_ptr<BaseAST> l_or_op;
+    std::unique_ptr<BaseAST> eq_exp;
+  };
+  std::variant<std::unique_ptr<BaseAST>
+                , LOrExp> mem;
+};
+               

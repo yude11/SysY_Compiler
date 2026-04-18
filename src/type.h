@@ -1,7 +1,7 @@
 #pragma once
 // IR中的Type相关的类型定义
 
-// Value的类型
+// Koopa中Value的类型
 typedef enum {
   /// Integer constant.
   KOOPA_RVT_INTEGER,
@@ -41,7 +41,7 @@ typedef enum {
   KOOPA_RVT_REF,
 } Value_Type;
 
-// 二元操作符的类型
+// Koopa中二元操作符的类型
 typedef enum {
   /// Not equal to.
   KOOPA_RBO_NOT_EQ,
@@ -89,6 +89,8 @@ typedef enum {
     /// Positive.
     AST_UNARY_OP_POS,
     /// Multiplication.
+
+    // 二元算术运算符
     AST_BINARY_OP_MUL,
     /// Division.
     AST_BINARY_OP_DIV,
@@ -96,7 +98,28 @@ typedef enum {
     AST_BINARY_OP_ADD,
     /// Subtraction.
     AST_BINARY_OP_SUB,
+    /// Modulo.
+    AST_BINARY_OP_MOD,
+    
+    // 二元比较运算符
+    /// Less than.
+    AST_BINARY_OP_LT,
+    /// Greater than.
+    AST_BINARY_OP_GT,
+    /// Greater than or equal to.
+    AST_BINARY_OP_GE,
+    /// Less than or equal to.
+    AST_BINARY_OP_LE,
+    /// Equal to.
+    AST_BINARY_OP_EQ,
+    /// Not equal to.
+    AST_BINARY_OP_NE,
 
+    // 二元逻辑运算符
+    /// Logical AND.
+    AST_BINARY_OP_LA,
+    /// Logical OR.
+    AST_BINARY_OP_LO,
 } Op_Type;
 
 typedef enum {
