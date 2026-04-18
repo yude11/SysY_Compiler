@@ -13,6 +13,22 @@
 
 using namespace std;
 
+// 当前处理的文件名
+extern std::string current_filename;
+
+// 定义位置更新宏
+#define YY_USER_ACTION \
+  yylloc.first_line = yylloc.last_line; \
+  yylloc.first_column = yylloc.last_column; \
+  for (int i = 0; i < yyleng; i++) { \
+    if (yytext[i] == '\n') { \
+      yylloc.last_line++; \
+      yylloc.last_column = 1; \
+    } else { \
+      yylloc.last_column++; \
+    } \
+  }
+
 %}
 
 /* 空白符和注释 */
@@ -37,14 +53,15 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 
 "int"           { return INT; }
 "return"        { return RETURN; }
+"const"         { return CONST; }
 
 ">="            { return GE; }
 "<="            { return LE; }
 "=="            { return EQ; }
 "!="            { return NE; }
 
-"&&"            { return LAnd; }
-"||"            { return LOr; }
+"&&"            { return LAND; }
+"||"            { return LOR; }
 
 {Identifier}    { yylval.str_val = new string(yytext); return IDENT; }
 

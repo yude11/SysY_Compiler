@@ -5,6 +5,14 @@
 
   #include "AST.h"
   #include "type.h"
+
+  // 位置信息类型
+  struct YYLTYPE {
+    int first_line;
+    int first_column;
+    int last_line;
+    int last_column;
+  };
 }
 
 %{ 
@@ -15,7 +23,7 @@
 #include <string>
 #include "AST.h"
 
-// 声明 lexer 函数和错误处理函数
+// 声明 lexer 函数和错误处理函数（Bison 会生成 YYSTYPE 和 YYLTYPE）
 int yylex();
 void yyerror(std::unique_ptr<BaseAST> &ast, const char *s);
 
@@ -27,6 +35,8 @@ using namespace std;
 // 我们需要返回一个字符串作为 AST, 所以我们把附加参数定义成字符串的智能指针
 // 解析完成后, 我们要手动修改这个参数, 把它设置成解析得到的字符串
 %parse-param { std::unique_ptr<BaseAST> &ast }
+%locations
+%define api.location.type {YYLTYPE}
 
 // yylval 的定义, 我们把它定义成了一个联合体 (union)
 // 因为 token 的值有的是字符串指针, 有的是整数
@@ -37,11 +47,12 @@ using namespace std;
   std::string *str_val;
   int int_val;
   BaseAST *ast_val;
+  std::vector<std::unique_ptr<BaseAST>>* ast_list;
 }
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN GE LE EQ NE LAnd LOr
+%token INT RETURN GE LE EQ NE LAND LOR CONST
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
@@ -51,8 +62,13 @@ using namespace std;
 
 // 非终结符的类型定义
 // %type <str_val> 
-%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp LOrExp LAndExp EqExp RelExp UnaryExp AddExp MulExp UnaryOp AddOp MulOp RelOp LGOp
+%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp 
+%type <ast_val> LOrExp LAndExp EqExp RelExp UnaryExp AddExp MulExp UnaryOp 
+%type <ast_val> AddOp MulOp RelOp LGOp BlockItem ConstDef Decl ConstDecl 
+%type <ast_val> ConstInitVal LVal ConstExp
 
+%type <ast_list> BlockItemList ConstDefList
+%type <str_val> BType
 
 
 %%
@@ -64,6 +80,7 @@ using namespace std;
 // $1 指代规则里第一个符号的返回值, 也就是 FuncDef 的返回值
 CompUnit
   : FuncDef {
+    cout << "FuncDef" << endl;
     auto comp_unit = make_unique<CompUnitAST>();
     comp_unit->func_def = unique_ptr<BaseAST>($1);
     ast = std::move(comp_unit);
@@ -98,12 +115,47 @@ FuncType
   ;
 
 Block
-  : '{' Stmt '}' {
+  : '{' '}' {
     auto ast = new BlockAST();
-    ast->stmt = unique_ptr<BaseAST>($2);
+    ast->block_items = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>(new std::vector<std::unique_ptr<BaseAST>>());
+    $$ = ast;
+  }
+  | '{' BlockItemList '}' {
+    cout << "111111" << endl;
+    auto ast = new BlockAST();
+    ast->block_items = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($2);
     $$ = ast;
   }
   ;
+
+BlockItemList
+  : BlockItem {
+    auto ast_list = new std::vector<std::unique_ptr<BaseAST>>();
+    ast_list->push_back(unique_ptr<BaseAST>($1));
+    $$ = ast_list;
+  }
+  | BlockItemList BlockItem {
+    cout << "BlockItem" << endl;
+    auto ast_list = $1;
+    ast_list->push_back(unique_ptr<BaseAST>($2));
+    $$ = ast_list;
+  }
+  ;
+
+BlockItem
+  : Decl {
+    cout << "Decl" << endl;
+    auto ast = new BlockItemAST();
+    ast->type = 0;
+    ast->mem = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | Stmt {
+    auto ast = new BlockItemAST();
+    ast->type = 1;
+    ast->mem = shared_ptr<BaseAST>($1);
+    $$ = ast;
+  }
 
 Stmt
   : RETURN Exp ';' {
@@ -114,12 +166,80 @@ Stmt
   }
   ;
 
+Decl
+  : ConstDecl {
+    cout << "ConstDecl" << endl;
+    $$ = $1;
+  }
+
+ConstDecl
+  : CONST BType ConstDef ';' {
+    auto ast = new ConstDeclAST();
+    ast->elem_type = *($2);
+    // 创建一个空的list, 并添加一个元素
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($3));
+    ast->const_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>(vec);
+    $$ = ast;
+  }
+  | CONST BType ConstDef ',' ConstDefList ';' {
+    auto ast = new ConstDeclAST();
+    ast->elem_type = *($2);
+    ast->const_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($5);
+    // 在开头插入
+    ast->const_def_list->insert(ast->const_def_list->begin(), 
+                std::unique_ptr<BaseAST>($3));
+    $$ = ast;
+  }
+  ;
+
+ConstDefList
+  : ConstDef {
+    auto ast_list = new std::vector<std::unique_ptr<BaseAST>>();
+    ast_list->push_back(unique_ptr<BaseAST>($1));
+    $$ = ast_list;
+  }
+  | ConstDefList ',' ConstDef {
+    auto ast_list = $1;
+    ast_list->push_back(unique_ptr<BaseAST>($3));
+    $$ = ast_list;
+  }
+  ;
+
+ConstDef
+  : IDENT '=' ConstInitVal {
+    auto ast = new ConstDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+ConstInitVal
+  : ConstExp {
+    $$ = $1;
+  }
+  ;
+
+BType 
+  : INT {
+    $$ = new std::string("i32");
+  }
+  ;
+
+//  表达式相关规则
 Exp
   : LOrExp {
     auto ast = new ExpAST();
     ast->l_or_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
+
+ConstExp
+  : Exp {
+    $$ = $1;
+  }
+  ;
 
 RelExp
   : AddExp {
@@ -237,6 +357,12 @@ PrimaryExp
     ast->mem = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
+  | LVal {
+    auto ast = new PrimaryExpAST();
+    ast->type = 2;
+    ast->mem = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
   ;
 
 RelOp
@@ -267,11 +393,11 @@ RelOp
   ;
 
 LGOp
-  : LAnd {
+  : LAND {
     auto ast = new LGBinaryOpAST(Op_Type::AST_BINARY_OP_LA);
     $$ = ast;
   }
-  | LOr {
+  | LOR {
     auto ast = new LGBinaryOpAST(Op_Type::AST_BINARY_OP_LO);
     $$ = ast;
   }
@@ -318,6 +444,14 @@ AddOp
   }
   ;
 
+LVal
+  : IDENT {
+    auto ast = new LValAST();
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
+  ;
+
 Number
   : INT_CONST {
     auto ast = new NumberAST();
@@ -331,5 +465,6 @@ Number
 // 定义错误处理函数, 其中第二个参数是错误信息
 // parser 如果发生错误 (例如输入的程序出现了语法错误), 就会调用这个函数
 void yyerror(unique_ptr<BaseAST> &ast, const char *s) {
-  cerr << "error: " << s << endl;
+  extern YYLTYPE yylloc;
+  cerr << yylloc.first_line << ":" << yylloc.first_column << ": error: " << s << endl;
 }

@@ -6,12 +6,12 @@
 
 
 
-IRgenerator::IRgenerator() : program(std::make_unique<Program>()) {}
+IRgenerator::IRgenerator() : program(std::make_unique<Program>()), symbol_table(std::make_unique<SymbolTable>()) {}
 
 IRgenerator::~IRgenerator() {}
 
 void IRgenerator::Visit(CompUnitAST* ast) {
-  // LOG("CompUnitAST");
+  LOG("CompUnitAST");
   current_func = std::make_unique<Function>();
   ast->func_def->Accept(this);
   // 当current_func构造完成后，将其加入到program中
@@ -19,12 +19,13 @@ void IRgenerator::Visit(CompUnitAST* ast) {
 }
 
 void IRgenerator::Visit(FuncTypeAST* ast) {
-  // LOG("FuncTypeAST");
+  LOG("FuncTypeAST");
   // std::cout << "FuncTypeAST { " << ast->type << " }" << std::endl;
   current_func->type = Type(ast->type);
 }
 
 void IRgenerator::Visit(FuncDefAST* ast) {
+  LOG("FuncDefAST");
   // std::cout << "FuncDefAST { " << ast->type << " }" << std::endl;
   current_block = std::make_unique<BasicBlock>("null");
   ast->func_type->Accept(this);
@@ -38,10 +39,13 @@ void IRgenerator::Visit(FuncDefAST* ast) {
 void IRgenerator::Visit(BlockAST* ast) {
   LOG("BlockAST");
   // std::cout << "BlockAST { " << ast->type << " }" << std::endl;
-  ast->stmt->Accept(this);
+  for (auto& item : *(ast->block_items)) {
+    item->Accept(this);
+  }
 }
 
 void IRgenerator::Visit(StmtAST* ast) {
+  LOG("StmtAST");
   switch (ast->type) {
     case Stmt_Type::AST_STMT_RETURN: {
       ast->number->Accept(this);
@@ -66,6 +70,7 @@ void IRgenerator::Visit(NumberAST* ast) {
 }
 
 void IRgenerator::Visit(ExpAST* ast) {
+  LOG("ExpAST");
   ast->l_or_exp->Accept(this);
 }
 
@@ -190,12 +195,34 @@ void IRgenerator::Visit(UnaryOpAST* ast) {
   // ast->unary_exp->Accept(this);
   std::shared_ptr<Value> rhs = current_value_stack.top();
   current_value_stack.pop();
+
+  // 如果右操作数是常量，直接计算结果
+  if (rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
+    LOG("rhs is integer");
+    auto r = (Value_INTEGER*)rhs.get();
+    switch (ast->op) {
+      case Op_Type::AST_UNARY_OP_NEG:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(-(r->val)));
+        break;
+      case Op_Type::AST_UNARY_OP_NOT:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(r->val == 0));
+        break;
+      case Op_Type::AST_UNARY_OP_POS:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(r->val));
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+
+  // 如果右操作数不是常量，翻译为指令
   std::string name = "%" + std::to_string(count++);
   switch (ast->op) {
     case Op_Type::AST_UNARY_OP_NEG: {
       // 将val实例加入到block
       auto val = std::make_shared<Value_BINARY>(name, 
-                              std::shared_ptr<Value>(new Value_INTEGER(0)),
+                              std::make_shared<Value_INTEGER>(0),
                               rhs,
                               Binary_Op_Type::KOOPA_RBO_SUB
                             );
@@ -208,7 +235,7 @@ void IRgenerator::Visit(UnaryOpAST* ast) {
       // 将val实例加入到block
       auto val = std::make_shared<Value_BINARY>(name, 
                               rhs,
-                              std::shared_ptr<Value>(new Value_INTEGER(0)),
+                              std::make_shared<Value_INTEGER>(0),
                               Binary_Op_Type::KOOPA_RBO_EQ
                             );
       current_block->stmts.push_back(val);
@@ -228,12 +255,63 @@ void IRgenerator::Visit(UnaryOpAST* ast) {
 void IRgenerator::Visit(BinaryOpAST* ast) {
   LOG("BinaryOpAST");
   assert(current_value_stack.size() >= 2);
-  std::shared_ptr<Value> rhs = std::move(current_value_stack.top());
+  LOG(current_value_stack.size());
+  std::shared_ptr<Value> rhs = current_value_stack.top();
   current_value_stack.pop();
-  std::shared_ptr<Value> lhs = std::move(current_value_stack.top());
+  std::shared_ptr<Value> lhs = current_value_stack.top();
   current_value_stack.pop();
+  LOG(lhs->name);
+  LOG(rhs->name);
   std::string name = "%" + std::to_string(count++);
   Binary_Op_Type op_type;
+  // 如果左操作数和右操作数都是常量，直接计算结果
+  if (lhs->type == Value_Type::KOOPA_RVT_INTEGER && rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
+    LOG("lhs is integer");
+    LOG("rhs is integer");
+    auto l = (Value_INTEGER*)lhs.get();
+    auto r = (Value_INTEGER*)rhs.get();
+    switch (ast->op) {
+      case Op_Type::AST_BINARY_OP_ADD:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val + r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_SUB:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val - r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_MUL:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val * r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_DIV:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val / r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_MOD:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val % r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_EQ:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val == r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_NE:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val != r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_GT:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val > r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_LT:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val < r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_LE:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val <= r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_GE:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val >= r->val));
+        break;
+      default:
+        // should not reach here
+        assert(0);
+        break;
+    }
+    return ;
+  }
+  // 如果左操作数和右操作数不是常量，翻译为指令
   switch (ast->op) {
     case Op_Type::AST_BINARY_OP_ADD:
       op_type = Binary_Op_Type::KOOPA_RBO_ADD;
@@ -269,7 +347,7 @@ void IRgenerator::Visit(BinaryOpAST* ast) {
       op_type = Binary_Op_Type::KOOPA_RBO_GE;
       break;
     default:
-      break;
+      break; 
   }
   // 将val实例加入到block
   auto val = std::make_shared<Value_BINARY>(name, lhs, 
@@ -284,10 +362,31 @@ void IRgenerator::Visit(LGBinaryOpAST* ast) {
   // 由于架构问题，暂时不支持短路求值
   LOG("LGBinaryOpAST");
   assert(current_value_stack.size() >= 2);
-  std::shared_ptr<Value> rhs = std::move(current_value_stack.top());
+  std::shared_ptr<Value> rhs = current_value_stack.top();
   current_value_stack.pop();
-  std::shared_ptr<Value> lhs = std::move(current_value_stack.top());
+  std::shared_ptr<Value> lhs = current_value_stack.top();
   current_value_stack.pop();
+
+  // 如果左操作数和右操作数都是常量，直接计算结果
+  if (lhs->type == Value_Type::KOOPA_RVT_INTEGER && rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
+    auto l = (Value_INTEGER*)lhs.get();
+    auto r = (Value_INTEGER*)rhs.get();
+    switch (ast->op) {
+      case Op_Type::AST_BINARY_OP_LA:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val && r->val));
+        break;
+      case Op_Type::AST_BINARY_OP_LO:
+        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val || r->val));
+        break;
+      default:
+        // should not reach here
+        assert(0);
+        break;
+    }
+    return ;
+  }
+
+  // 如果左操作数和右操作数不是常量，翻译为指令
   switch (ast->op) {
     case Op_Type::AST_BINARY_OP_LA: {
       // 逻辑与翻译为三条指令  
@@ -345,6 +444,43 @@ void IRgenerator::Visit(LGBinaryOpAST* ast) {
       break;
   }
 }
+
+void IRgenerator::Visit(BlockItemAST* ast) {
+  LOG("BlockItemAST");
+  if (ast->type == 0) {
+    // Stmt
+    std::get<std::unique_ptr<BaseAST>>(ast->mem)->Accept(this);
+  } else {
+    // Exp
+    std::get<std::shared_ptr<BaseAST>>(ast->mem)->Accept(this);
+  }
+}
+
+void IRgenerator::Visit(ConstDeclAST* ast) {
+  LOG("ConstDeclAST");
+  for (auto& item : *(ast->const_def_list)) {
+    auto const_def = (ConstDefAST*)item.get();
+    const_def->const_exp->Accept(this);
+    symbol_table->Insert(const_def->ident, current_value_stack.top(), true, ast->elem_type);
+    LOG(current_value_stack.top()->name);
+    symbol_table->PrintTable();
+    current_value_stack.pop();
+  }
+  LOG("ConstDeclAST done");
+}
+
+void IRgenerator::Visit(ConstDefAST* ast) {
+  LOG("ConstDefAST");
+  // symbol_table->Insert(ast->ident, nullptr, true, {});
+}
+
+void IRgenerator::Visit(LValAST* ast) {
+  LOG("LValAST");
+  auto val = symbol_table->Find(ast->ident);
+  current_value_stack.push(val);
+}
+
+
 
 void IRgenerator::Visit(OpAST* ast) {
   LOG("OpAST");

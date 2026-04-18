@@ -1,6 +1,4 @@
 int main() {
-  // return +(- -!6);
-  // return 1 || 3;
-  return !0;
-  // return 1 + 1 * 6 * -6;
+  const int x = 1, y = 2;
+  return +x + y;
 }

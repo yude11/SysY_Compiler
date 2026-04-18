@@ -70,20 +70,84 @@ class FuncDefAST : public BaseAST {
   std::unique_ptr<BaseAST> block;
 
 };
-
+// BLock = { BlockItem* }
 class BlockAST : public BaseAST {
- public:
+  public:
   void Accept(ASTVisitor *visitor) override {
     visitor->Visit(this);
   }
-
+  
   void Dump() const override {
     std::cout << "BlockAST { ";
-    stmt->Dump();
+    for (auto& item : *block_items) {
+      item->Dump();
+    }
     std::cout << " }";
   }
+  
+  std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> block_items;
+};
 
-  std::unique_ptr<BaseAST> stmt;
+// BlockItem = Decl | Stmt
+class BlockItemAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "BlockItemAST { ";
+      if (type == 0) {
+        auto& item = std::get<std::unique_ptr<BaseAST>>(mem);
+        item->Dump();
+      } else {
+        auto item = std::get<std::shared_ptr<BaseAST>>(mem);
+        item->Dump();
+      }
+      std::cout << " }";
+    }
+
+    int type = -1;
+    std::variant<std::unique_ptr<BaseAST>, std::shared_ptr<BaseAST>> mem;
+};
+
+// ConstDecl = CONST BType ConstDef "," ConstDefList ";" | CONST BType ConstDef "," ConstDefList ";"
+class ConstDeclAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "ConstDecl { ";
+      for (auto& const_def : *const_def_list) {
+        const_def->Dump();
+      }
+      std::cout << " }";
+    }
+
+    // List的大小要大于等于1
+    std::string elem_type;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> const_def_list;
+};
+
+// ConstDef = INDENT = ConstInitVal
+// ConstInitVal = ConstExp
+class ConstDefAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "ConstDefAST { ";
+      // std::cout << ident << " = ";
+      const_exp->Dump();
+      std::cout << " }";
+    }
+
+    std::string ident;
+    std::unique_ptr<BaseAST> const_exp;
 };
 
 class NumberAST : public BaseAST {
@@ -97,6 +161,21 @@ class NumberAST : public BaseAST {
   }
 
   int num;
+};
+
+class LValAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "LValAST { ";
+      std::cout << ident;
+      std::cout << " }";
+    }
+
+    std::string ident;
 };
 
 class StmtAST : public BaseAST {

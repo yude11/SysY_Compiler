@@ -27,6 +27,11 @@ class LOrExpAST;
 class LAndExpAST;
 class EqExpAST;
 class RelExpAST;
+class BlockItemAST;
+class ConstDeclAST;
+class ConstDefAST;
+class LValAST;
+
 
 
 
@@ -54,6 +59,10 @@ class ASTVisitor : public Visitor {
     virtual void Visit(LAndExpAST* ast) = 0;
     virtual void Visit(EqExpAST* ast) = 0;
     virtual void Visit(RelExpAST* ast) = 0;
+    virtual void Visit(BlockItemAST* ast) = 0;
+    virtual void Visit(ConstDeclAST* ast) = 0;
+    virtual void Visit(ConstDefAST* ast) = 0;
+    virtual void Visit(LValAST* ast) = 0;
 };
 
 class Value;

@@ -6,6 +6,7 @@
 #include "visitor.h"
 #include "IR.h"
 #include "AST.h"
+#include "SymbolTable.h"
 
 
 // 内存IR生成器
@@ -34,6 +35,10 @@ class IRgenerator : public ASTVisitor {
     void Visit(LAndExpAST* ast) override;
     void Visit(EqExpAST* ast) override;
     void Visit(RelExpAST* ast) override;
+    void Visit(BlockItemAST* ast) override;
+    void Visit(ConstDeclAST* ast) override;
+    void Visit(ConstDefAST* ast) override;
+    void Visit(LValAST* ast) override;
 
     // 输出IR表示
     void OutputIR(std::string output);
@@ -45,6 +50,9 @@ class IRgenerator : public ASTVisitor {
 
     // 表示临时变量的编号
     int count = 0;
+
+    // 符号表
+    std::unique_ptr<SymbolTable> symbol_table;
 };
 
 // 输出文字形式的IR到文件中

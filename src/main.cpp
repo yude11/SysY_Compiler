@@ -42,9 +42,9 @@ int main(int argc, const char *argv[]) {
   assert(!ret);
 
   // 输出解析得到的 AST
-  ast->Dump();
-  cout << endl;
-  cout << endl;
+  // ast->Dump();
+  // cout << endl;
+  // cout << endl;
 
   // 生成 内存IR表示
   IRgenerator irgen;

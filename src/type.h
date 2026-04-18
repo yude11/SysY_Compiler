@@ -127,3 +127,12 @@ typedef enum {
     AST_STMT_RETURN,
     AST_STMT_ASSIGN,
 } Stmt_Type;
+
+//变量，函数返回值的类型 
+typedef enum {
+  /// Integer.
+  AST_TYPE_INTEGER,
+  /// Void.
+  AST_TYPE_VOID,
+  /// Aggregate.
+} AST_Type; 
