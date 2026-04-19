@@ -36,6 +36,46 @@ class Value {
     //TODO
 };
 
+// 内存分配指令
+class Value_ALLOC : public Value {
+public:
+    Value_ALLOC(std::string name, std::string elem_type)
+        : Value(name, Value_Type::KOOPA_RVT_ALLOC), elem_type(elem_type) {}
+    
+    void Accept(IRVisitor* visitor) override {
+        visitor->Visit(this);
+    }
+    
+    std::string elem_type;  // "i32", "i32*", 等
+};
+
+// 内存加载指令
+class Value_LOAD : public Value {
+public:
+    Value_LOAD(std::string name, std::shared_ptr<Value> src)
+        : Value(name, Value_Type::KOOPA_RVT_LOAD), src(src) {}
+    
+    void Accept(IRVisitor* visitor) override {
+        visitor->Visit(this);
+    }
+    
+  std::shared_ptr<Value> src;  // 指向内存的指针
+};
+
+// 内存存储指令
+class Value_STORE : public Value {
+public:
+    Value_STORE(std::shared_ptr<Value> value, std::shared_ptr<Value> dst)
+        : Value("null", Value_Type::KOOPA_RVT_STORE), value(value), dst(dst) {}
+    
+    void Accept(IRVisitor* visitor) override {
+        visitor->Visit(this);
+    }
+    
+    std::shared_ptr<Value> value;  // 要存储的值
+    std::shared_ptr<Value> dst;    // 目标内存地址
+};
+
 class Value_INTEGER : public Value {
   public:
     Value_INTEGER(int val) : Value(std::to_string(val), Value_Type::KOOPA_RVT_INTEGER), val(val) {}

@@ -9,21 +9,24 @@
 #include "type.h"
 #include "IR.h"
 #include "log.h"
+#include "SymbolTable.h"
 
 
 
 // 寄存器分配器
 class RegAllocator {
- private:
+public:
   // 值到寄存器的映射
   std::unordered_map<Value*, std::string> value_to_reg;
   // 寄存器到值的映射 
   std::unordered_map<std::string, Value*> reg_to_value;
   // 可用寄存器栈
   std::stack<std::string> free_regs;
-  // int stack_offset = 0;  // 溢出时的栈偏移
-  
- public:
+
+  std::unordered_map<Value*, int> value_to_loc;
+
+  int stack_offset = 0;  // 溢出时的栈偏移
+
   RegAllocator() {
     // 初始化可用寄存器
     for (int i = 0; i < 6; i++) {
@@ -67,6 +70,44 @@ class RegAllocator {
     }
     return "";  // 未找到
   }
+
+  int GetLoc(Value* value) {
+    auto it = value_to_loc.find(value);
+    if (it != value_to_loc.end()) {
+      return it->second;
+    }
+    return -1;  // 未找到
+  }
+
+  void Scan(BasicBlock* block) {
+    for (auto stmt : block->stmts) {
+      switch (stmt->type) {
+      case Value_Type::KOOPA_RVT_ALLOC:
+      case Value_Type::KOOPA_RVT_LOAD:
+      case Value_Type::KOOPA_RVT_BINARY:
+        value_to_loc[stmt.get()] = stack_offset;
+        stack_offset+=4;
+        break;
+      case Value_Type::KOOPA_RVT_INTEGER:
+        assert(0 && "error: error instruction type: INTEGER");
+        break;
+      default:
+        break;
+      }
+    }
+  }
+
+  void Clear() {
+    value_to_reg.clear();
+    reg_to_value.clear();
+    while (!free_regs.empty()) {
+      free_regs.pop();
+    }
+
+    for (int i = 6; i >= 0; i--) {
+      free_regs.push("t" + std::to_string(i));
+    }
+  }
   
   // // 溢出到栈
   // std::string Spill(std::string value_name) {
@@ -98,18 +139,23 @@ class RegAllocator {
 
 class AssemblyGenerator : public IRVisitor {
   public:
-    AssemblyGenerator(std::string output);
+    AssemblyGenerator(std::string output, std::unique_ptr<SymbolTable> symbol_table);
     ~AssemblyGenerator();
-    
+
     void Visit(Value_RETURN* return_val) override;
     void Visit(Value_INTEGER* integer) override;
     void Visit(Value_BINARY* binary) override;
+    void Visit(Value_ALLOC* alloc) override;
+    void Visit(Value_LOAD* load) override;
+    void Visit(Value_STORE* store) override;
     void Visit(Value_REF* ref) override;
     void Visit(BasicBlock* block) override;
     void Visit(Function* func) override;
     void Visit(Program* program) override;
 
     std::fstream fs;
-    RegAllocator reg_allocator;
+    std::unique_ptr<RegAllocator> reg_allocator;
+    std::unique_ptr<SymbolTable> symbol_table;
+
 };
 

@@ -64,10 +64,10 @@ using namespace std;
 // %type <str_val> 
 %type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp 
 %type <ast_val> LOrExp LAndExp EqExp RelExp UnaryExp AddExp MulExp UnaryOp 
-%type <ast_val> AddOp MulOp RelOp LGOp BlockItem ConstDef Decl ConstDecl 
-%type <ast_val> ConstInitVal LVal ConstExp
+%type <ast_val> AddOp MulOp RelOp EqOp LAndOp LOrOp BlockItem ConstDef Decl ConstDecl 
+%type <ast_val> ConstInitVal LVal ConstExp VarDecl VarDef InitVal
 
-%type <ast_list> BlockItemList ConstDefList
+%type <ast_list> BlockItemList ConstDefList VarDefList
 %type <str_val> BType
 
 
@@ -80,7 +80,6 @@ using namespace std;
 // $1 指代规则里第一个符号的返回值, 也就是 FuncDef 的返回值
 CompUnit
   : FuncDef {
-    cout << "FuncDef" << endl;
     auto comp_unit = make_unique<CompUnitAST>();
     comp_unit->func_def = unique_ptr<BaseAST>($1);
     ast = std::move(comp_unit);
@@ -121,7 +120,6 @@ Block
     $$ = ast;
   }
   | '{' BlockItemList '}' {
-    cout << "111111" << endl;
     auto ast = new BlockAST();
     ast->block_items = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($2);
     $$ = ast;
@@ -135,7 +133,6 @@ BlockItemList
     $$ = ast_list;
   }
   | BlockItemList BlockItem {
-    cout << "BlockItem" << endl;
     auto ast_list = $1;
     ast_list->push_back(unique_ptr<BaseAST>($2));
     $$ = ast_list;
@@ -144,7 +141,6 @@ BlockItemList
 
 BlockItem
   : Decl {
-    cout << "Decl" << endl;
     auto ast = new BlockItemAST();
     ast->type = 0;
     ast->mem = unique_ptr<BaseAST>($1);
@@ -161,16 +157,85 @@ Stmt
   : RETURN Exp ';' {
     auto ast = new StmtAST();
     ast->type = Stmt_Type::AST_STMT_RETURN;
-    ast->number = unique_ptr<BaseAST>($2);
+    ast->stmt = unique_ptr<BaseAST>($2);
+    $$ = ast;
+  }
+  | LVal '=' Exp ';' {
+    auto ast = new StmtAST();
+    ast->type = Stmt_Type::AST_STMT_ASSIGN;
+    StmtAST::Assign_STMT assign;
+    assign.lval = std::unique_ptr<BaseAST>($1);
+    assign.exp = std::unique_ptr<BaseAST>($3);
+    ast->stmt = std::move(assign);
     $$ = ast;
   }
   ;
 
 Decl
   : ConstDecl {
-    cout << "ConstDecl" << endl;
     $$ = $1;
   }
+  | VarDecl {
+    $$ = $1;
+  }
+  ;
+
+VarDecl
+  : BType VarDef ';' {
+    auto ast = new VarDeclAST();
+    ast->elem_type = *($1);
+    // 创建一个空的list, 并添加一个元素
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($2));
+    ast->var_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>(vec);
+    $$ = ast;
+  }
+  | BType VarDef ',' VarDefList ';' {
+    auto ast = new VarDeclAST();
+    ast->elem_type = *($1);
+    ast->var_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($4);
+    // 在开头插入
+    ast->var_def_list->insert(ast->var_def_list->begin(), 
+                std::unique_ptr<BaseAST>($2));
+    $$ = ast;
+  }
+  ;
+
+VarDefList
+  : VarDef {
+    auto ast_list = new std::vector<std::unique_ptr<BaseAST>>();
+    ast_list->push_back(unique_ptr<BaseAST>($1));
+    $$ = ast_list;
+  }
+  | VarDefList ',' VarDef {
+    auto ast_list = $1;
+    ast_list->push_back(unique_ptr<BaseAST>($3));
+    $$ = ast_list;
+  }
+  ;
+
+VarDef
+  : IDENT {
+    auto ast = new VarDefAST();
+    ast->type = 0;
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
+  | IDENT '=' InitVal {
+    auto ast = new VarDefAST();
+    ast->type = 1;
+    ast->ident = *unique_ptr<string>($1);
+    ast->var_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+InitVal
+  : Exp {
+    $$ = $1;
+  }
+  ;
+
 
 ConstDecl
   : CONST BType ConstDef ';' {
@@ -233,6 +298,7 @@ Exp
     auto ast = new ExpAST();
     ast->l_or_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
+    // $$ = $1;
   }
 
 ConstExp
@@ -263,7 +329,7 @@ EqExp
     ast->mem = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
-  | EqExp RelOp RelExp {
+  | EqExp EqOp RelExp {
     auto ast = new EqExpAST();
     ast->type = 1;
     ast->mem = EqExpAST::EqExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
@@ -278,7 +344,7 @@ LAndExp
     ast->mem = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
-  | LAndExp LGOp EqExp {
+  | LAndExp LAndOp EqExp {
     auto ast = new LAndExpAST();
     ast->type = 1;
     ast->mem = LAndExpAST::LAndExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
@@ -293,7 +359,7 @@ LOrExp
     ast->mem = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
-  | LOrExp LGOp LAndExp {
+  | LOrExp LOrOp LAndExp {
     auto ast = new LOrExpAST();
     ast->type = 1;
     ast->mem = LOrExpAST::LOrExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2), unique_ptr<BaseAST>($3)};
@@ -365,6 +431,17 @@ PrimaryExp
   }
   ;
 
+EqOp
+  : EQ {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_EQ);
+    $$ = ast;
+  }
+  | NE {
+    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_NE);
+    $$ = ast;
+  }
+  ;
+
 RelOp
   : '<' {
     auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_LT);
@@ -382,22 +459,17 @@ RelOp
     auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_GE);
     $$ = ast;
   }
-  | EQ {
-    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_EQ);
-    $$ = ast;
-  }
-  | NE {
-    auto ast = new BinaryOpAST(Op_Type::AST_BINARY_OP_NE);
-    $$ = ast;
-  }
   ;
 
-LGOp
+LAndOp
   : LAND {
     auto ast = new LGBinaryOpAST(Op_Type::AST_BINARY_OP_LA);
     $$ = ast;
   }
-  | LOR {
+  ;
+  
+LOrOp
+  : LOR {
     auto ast = new LGBinaryOpAST(Op_Type::AST_BINARY_OP_LO);
     $$ = ast;
   }

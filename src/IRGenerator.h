@@ -39,6 +39,8 @@ class IRgenerator : public ASTVisitor {
     void Visit(ConstDeclAST* ast) override;
     void Visit(ConstDefAST* ast) override;
     void Visit(LValAST* ast) override;
+    void Visit(VarDefAST* ast) override;
+    void Visit(VarDeclAST* ast) override;
 
     // 输出IR表示
     void OutputIR(std::string output);
@@ -68,6 +70,9 @@ class IROutputer : public IRVisitor {
     void Visit(Value_RETURN* return_val) override;
     void Visit(Value_INTEGER* integer) override;
     void Visit(Value_BINARY* binary) override;
+    void Visit(Value_ALLOC* alloc) override;
+    void Visit(Value_LOAD* load) override;
+    void Visit(Value_STORE* store) override;
     void Visit(BasicBlock* block) override;
     void Visit(Function* func) override;
     void Visit(Program* program) override;

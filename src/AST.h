@@ -111,6 +111,61 @@ class BlockItemAST : public BaseAST {
     std::variant<std::unique_ptr<BaseAST>, std::shared_ptr<BaseAST>> mem;
 };
 
+// class DeclAST : public BaseAST {
+//  public:
+//   void Accept(ASTVisitor *visitor) override {
+//     visitor->Visit(this);
+//   }
+
+//   void Dump() const override {
+//     std::cout << "DeclAST { ";
+//     mem->Dump();
+//     std::cout << " }";
+//   }
+
+//   int type = -1;
+//   std::unique_ptr<BaseAST> mem;
+// };
+
+class VarDeclAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "VarDeclAST { ";
+      for (auto& var_def : *var_def_list) {
+        var_def->Dump();
+      }
+      std::cout << " }";
+    }
+
+    // List的大小要大于等于1
+    std::string elem_type;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> var_def_list;
+};
+
+class VarDefAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "VarDefAST { ";
+      // std::cout << ident << " = ";
+      var_exp->Dump();
+      std::cout << " }";
+    }
+
+    int type = -1;
+    std::string ident;
+    std::unique_ptr<BaseAST> var_exp;
+};
+
+
+
 // ConstDecl = CONST BType ConstDef "," ConstDefList ";" | CONST BType ConstDef "," ConstDefList ";"
 class ConstDeclAST : public BaseAST {
   public:
@@ -186,12 +241,32 @@ class StmtAST : public BaseAST {
 
   void Dump() const override {
     std::cout << "StmtAST { ";
-    number->Dump();
+    switch (type) {
+      case Stmt_Type::AST_STMT_RETURN: {
+        auto& return_stmt = std::get<RETURN_STMT>(stmt);
+        return_stmt->Dump();
+        break;
+      }
+      case Stmt_Type::AST_STMT_ASSIGN: {
+        auto& assign_stmt = std::get<Assign_STMT>(stmt);
+        assign_stmt.lval->Dump();
+        assign_stmt.exp->Dump();
+        break;
+      }
+      default:
+        break;
+    }
     std::cout << " }";
   }
   
   Stmt_Type type;
-  std::unique_ptr<BaseAST> number;
+  typedef std::shared_ptr<BaseAST> RETURN_STMT;
+  struct Assign_STMT {
+    std::shared_ptr<BaseAST> lval;
+    std::shared_ptr<BaseAST> exp;
+  };
+  
+  std::variant<RETURN_STMT, Assign_STMT> stmt;
 };
 
 class OpAST : public BaseAST {

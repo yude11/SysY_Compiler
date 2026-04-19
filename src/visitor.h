@@ -31,6 +31,8 @@ class BlockItemAST;
 class ConstDeclAST;
 class ConstDefAST;
 class LValAST;
+class VarDefAST;
+class VarDeclAST;
 
 
 
@@ -63,12 +65,17 @@ class ASTVisitor : public Visitor {
     virtual void Visit(ConstDeclAST* ast) = 0;
     virtual void Visit(ConstDefAST* ast) = 0;
     virtual void Visit(LValAST* ast) = 0;
+    virtual void Visit(VarDefAST* ast) = 0;
+    virtual void Visit(VarDeclAST* ast) = 0;
 };
 
 class Value;
 class Value_RETURN;
 class Value_INTEGER;
 class Value_BINARY;
+class Value_ALLOC;
+class Value_LOAD;
+class Value_STORE;
 class Value_REF;
 class BasicBlock;
 class Function;
@@ -81,6 +88,9 @@ class IRVisitor : public Visitor {
     virtual void Visit(Value_INTEGER* integer) = 0;
     virtual void Visit(Value_BINARY* binary) = 0;
     virtual void Visit(Value_REF* ref) = 0;
+    virtual void Visit(Value_ALLOC* alloc) = 0;
+    virtual void Visit(Value_LOAD* load) = 0;
+    virtual void Visit(Value_STORE* store) = 0;
     virtual void Visit(BasicBlock* block) = 0;
     virtual void Visit(Function* func) = 0;
     virtual void Visit(Program* program) = 0;

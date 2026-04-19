@@ -55,7 +55,7 @@ int main(int argc, const char *argv[]) {
     irgen.OutputIR(output);
   } else if (strcmp(mode, "-riscv") == 0) {
     // 输出riscv assembly
-    AssemblyGenerator asmgen(output);
+    AssemblyGenerator asmgen(output, std::move(irgen.symbol_table));
     irgen.program->Accept(&asmgen);
   }
   return 0;

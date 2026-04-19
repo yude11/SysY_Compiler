@@ -18,11 +18,19 @@ class SymbolTable {
     ~SymbolTable() = default;
 
     // 查找符号表中是否存在该符号
-    std::shared_ptr<Value> Find(const std::string& name) {
+    std::shared_ptr<Value> FindValue(const std::string& name) {
       if (table.find(name) == table.end()) {
         return nullptr;
       }
       return table.find(name)->second.value;
+    }
+
+    void SetValue(const std::string& name, const std::shared_ptr<Value>& value) {
+      if (table.find(name) == table.end()) {
+        assert(0 && "Symbol not found");
+        return;
+      }
+      table.find(name)->second.value = value;
     }
 
     // 插入符号表

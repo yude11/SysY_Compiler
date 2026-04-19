@@ -48,8 +48,9 @@ void IRgenerator::Visit(StmtAST* ast) {
   LOG("StmtAST");
   switch (ast->type) {
     case Stmt_Type::AST_STMT_RETURN: {
-      ast->number->Accept(this);
-      // 从栈中弹出值
+      auto return_stmt = std::get<StmtAST::RETURN_STMT>(ast->stmt);
+      return_stmt->Accept(this);
+        // 从栈中弹出值
       assert(!current_value_stack.empty());
       auto val = current_value_stack.top();
       current_value_stack.pop();
@@ -58,7 +59,30 @@ void IRgenerator::Visit(StmtAST* ast) {
       break;
     }
     case Stmt_Type::AST_STMT_ASSIGN: {
-      // TODO
+      auto assign_stmt = std::get<StmtAST::Assign_STMT>(ast->stmt);
+      /// 首先进行语义判断，确保lval是可赋的变量
+      auto lval = static_cast<LValAST*>(assign_stmt.lval.get());
+      // 1. 判断lval是否在符号表中
+      if (!symbol_table->IsContains(lval->ident)) {
+        std::cerr << "error : " << lval->ident << " is not defined" << std::endl;
+        assert(0);
+      }
+      // 2. 判断lval是否为常量
+      auto symbol = symbol_table->table[lval->ident];
+      if (symbol.is_const) {
+        std::cerr << "error : " << lval->ident << " is const" << std::endl;
+        assert(0);
+      }
+      /// 获取变量地址（左值不需要 load）
+      auto variable = symbol_table->FindValue(lval->ident);
+      /// 计算右值表达式
+      assign_stmt.exp->Accept(this);
+      // 从栈中弹出值
+      assert(!current_value_stack.empty());
+      auto val = current_value_stack.top();
+      current_value_stack.pop();
+      /// 生成store指令
+      current_block->stmts.push_back(std::make_shared<Value_STORE>(val, variable));
       break;
     }
   }
@@ -199,7 +223,7 @@ void IRgenerator::Visit(UnaryOpAST* ast) {
   // 如果右操作数是常量，直接计算结果
   if (rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
     LOG("rhs is integer");
-    auto r = (Value_INTEGER*)rhs.get();
+    auto r = static_cast<Value_INTEGER*>(rhs.get());
     switch (ast->op) {
       case Op_Type::AST_UNARY_OP_NEG:
         current_value_stack.push(std::make_shared<Value_INTEGER>(-(r->val)));
@@ -255,21 +279,16 @@ void IRgenerator::Visit(UnaryOpAST* ast) {
 void IRgenerator::Visit(BinaryOpAST* ast) {
   LOG("BinaryOpAST");
   assert(current_value_stack.size() >= 2);
-  LOG(current_value_stack.size());
   std::shared_ptr<Value> rhs = current_value_stack.top();
   current_value_stack.pop();
   std::shared_ptr<Value> lhs = current_value_stack.top();
   current_value_stack.pop();
-  LOG(lhs->name);
-  LOG(rhs->name);
   std::string name = "%" + std::to_string(count++);
   Binary_Op_Type op_type;
   // 如果左操作数和右操作数都是常量，直接计算结果
   if (lhs->type == Value_Type::KOOPA_RVT_INTEGER && rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
-    LOG("lhs is integer");
-    LOG("rhs is integer");
-    auto l = (Value_INTEGER*)lhs.get();
-    auto r = (Value_INTEGER*)rhs.get();
+    auto l = static_cast<Value_INTEGER*>(lhs.get());
+    auto r = static_cast<Value_INTEGER*>(rhs.get());
     switch (ast->op) {
       case Op_Type::AST_BINARY_OP_ADD:
         current_value_stack.push(std::make_shared<Value_INTEGER>(l->val + r->val));
@@ -369,8 +388,8 @@ void IRgenerator::Visit(LGBinaryOpAST* ast) {
 
   // 如果左操作数和右操作数都是常量，直接计算结果
   if (lhs->type == Value_Type::KOOPA_RVT_INTEGER && rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
-    auto l = (Value_INTEGER*)lhs.get();
-    auto r = (Value_INTEGER*)rhs.get();
+    auto l = static_cast<Value_INTEGER*>(lhs.get());
+    auto r = static_cast<Value_INTEGER*>(rhs.get());
     switch (ast->op) {
       case Op_Type::AST_BINARY_OP_LA:
         current_value_stack.push(std::make_shared<Value_INTEGER>(l->val && r->val));
@@ -459,25 +478,32 @@ void IRgenerator::Visit(BlockItemAST* ast) {
 void IRgenerator::Visit(ConstDeclAST* ast) {
   LOG("ConstDeclAST");
   for (auto& item : *(ast->const_def_list)) {
-    auto const_def = (ConstDefAST*)item.get();
+    auto const_def = static_cast<ConstDefAST*>(item.get());
     const_def->const_exp->Accept(this);
     symbol_table->Insert(const_def->ident, current_value_stack.top(), true, ast->elem_type);
-    LOG(current_value_stack.top()->name);
-    symbol_table->PrintTable();
     current_value_stack.pop();
   }
-  LOG("ConstDeclAST done");
 }
 
 void IRgenerator::Visit(ConstDefAST* ast) {
   LOG("ConstDefAST");
   // symbol_table->Insert(ast->ident, nullptr, true, {});
+  // 上一层直接处理了，所以应该不会到达这里
 }
 
 void IRgenerator::Visit(LValAST* ast) {
   LOG("LValAST");
-  auto val = symbol_table->Find(ast->ident);
-  current_value_stack.push(val);
+  auto val = symbol_table->FindValue(ast->ident);
+  if (!symbol_table->table[ast->ident].is_const) {
+    /// 载入变量，生成load指令
+    auto load_val = std::make_shared<Value_LOAD>("%" + std::to_string(count++), val);
+    current_block->stmts.push_back(load_val);
+    /// 压入load的结果
+    current_value_stack.push(load_val);
+  } else {
+    /// 常量直接压入值
+    current_value_stack.push(val);
+  }
 }
 
 
@@ -485,6 +511,33 @@ void IRgenerator::Visit(LValAST* ast) {
 void IRgenerator::Visit(OpAST* ast) {
   LOG("OpAST");
   // NEVER REACH HERE
+}
+
+void IRgenerator::Visit(VarDefAST* ast) {
+  LOG("VarDefAST");
+  // 上一层直接处理了，所以应该不会到达这里
+}
+
+void IRgenerator::Visit(VarDeclAST* ast) {
+  LOG("VarDeclAST");
+  // VarDef
+  for (auto& item : *(ast->var_def_list)) {
+    auto var_def = static_cast<VarDefAST*>(item.get());
+    // 生成alloc指令
+    auto alloc = std::make_shared<Value_ALLOC>("@" + var_def->ident, ast->elem_type);
+    current_block->stmts.push_back(alloc);
+    if (var_def->type == 1) {
+      // 初始化
+      var_def->var_exp->Accept(this);
+      // 为变量赋值，生成store指令
+      auto store = std::make_shared<Value_STORE>(current_value_stack.top(), alloc);
+      current_block->stmts.push_back(store);
+      current_value_stack.pop();
+      // 在符号表中插入变量
+    }
+    symbol_table->Insert(var_def->ident, alloc, false, ast->elem_type);
+  }
+
 }
 
 
@@ -581,5 +634,17 @@ void IROutputer::Visit(Program* program) {
   for (auto& func : program->functions) {
     func->Accept(this);
   }
+}
+
+void IROutputer::Visit(Value_ALLOC* alloc) {
+  fs << "  " << alloc->name << " = alloc " << alloc->elem_type << std::endl;
+}
+
+void IROutputer::Visit(Value_LOAD* load) {
+  fs << "  " << load->name << " = load " << load->src->name << std::endl;
+}
+
+void IROutputer::Visit(Value_STORE* store) {
+  fs << "  store " << store->value->name << ", " << store->dst->name << std::endl;
 }
 
