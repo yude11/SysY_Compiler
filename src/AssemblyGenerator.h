@@ -148,6 +148,8 @@ class AssemblyGenerator : public IRVisitor {
     void Visit(Value_ALLOC* alloc) override;
     void Visit(Value_LOAD* load) override;
     void Visit(Value_STORE* store) override;
+    void Visit(Value_JUMP* jump) override;
+    void Visit(Value_BRANCH* branch) override;
     void Visit(Value_REF* ref) override;
     void Visit(BasicBlock* block) override;
     void Visit(Function* func) override;

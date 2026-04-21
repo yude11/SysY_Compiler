@@ -125,7 +125,12 @@ typedef enum {
 typedef enum {
     /// Return.
     AST_STMT_RETURN,
+    /// Assignment.
     AST_STMT_ASSIGN,
+    /// Block statement.
+    AST_STMT_BLOCK,
+    /// If-Else statement.
+    AST_STMT_IF_ELSE,
 } Stmt_Type;
 
 //变量，函数返回值的类型 

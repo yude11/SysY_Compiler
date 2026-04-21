@@ -260,13 +260,19 @@ class StmtAST : public BaseAST {
   }
   
   Stmt_Type type;
-  typedef std::shared_ptr<BaseAST> RETURN_STMT;
+  typedef std::unique_ptr<BaseAST> RETURN_STMT;
   struct Assign_STMT {
-    std::shared_ptr<BaseAST> lval;
-    std::shared_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> lval;
+    std::unique_ptr<BaseAST> exp;
   };
-  
-  std::variant<RETURN_STMT, Assign_STMT> stmt;
+  typedef std::unique_ptr<BaseAST> Block_STMT;
+  struct IfElse_STMT {
+    std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> if_stmt;
+    std::unique_ptr<BaseAST> else_stmt;
+  };
+
+  std::variant<Assign_STMT, Block_STMT, IfElse_STMT> stmt;
 };
 
 class OpAST : public BaseAST {

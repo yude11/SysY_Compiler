@@ -87,6 +87,34 @@ class Value_INTEGER : public Value {
     int val;
 };
 
+// 条件跳转指令
+class Value_BRANCH : public Value {
+  public:
+    Value_BRANCH(std::shared_ptr<Value> cond, std::string then_name, 
+        std::string else_name) : Value("branch", Value_Type::KOOPA_RVT_BRANCH), 
+          cond(cond), then_name(then_name), else_name(else_name) {}
+
+    void Accept(IRVisitor* visitor) override {
+      visitor->Visit(this);
+    }
+
+    std::shared_ptr<Value> cond;
+    std::string then_name;
+    std::string else_name;
+};
+
+// 无条件跳转指令
+class Value_JUMP : public Value {
+  public:
+    Value_JUMP(std::string dst_name) : Value("jump", Value_Type::KOOPA_RVT_JUMP), dst_name(dst_name) {}
+
+    void Accept(IRVisitor* visitor) override {
+      visitor->Visit(this);
+    }
+
+    std::string dst_name;
+};
+
 class Value_REF : public Value {
  public:
   Value_REF(std::string name) 

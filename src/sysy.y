@@ -52,7 +52,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN GE LE EQ NE LAND LOR CONST
+%token INT RETURN GE LE EQ NE LAND LOR CONST IF ELSE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
@@ -65,10 +65,14 @@ using namespace std;
 %type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp 
 %type <ast_val> LOrExp LAndExp EqExp RelExp UnaryExp AddExp MulExp UnaryOp 
 %type <ast_val> AddOp MulOp RelOp EqOp LAndOp LOrOp BlockItem ConstDef Decl ConstDecl 
-%type <ast_val> ConstInitVal LVal ConstExp VarDecl VarDef InitVal
+%type <ast_val> ConstInitVal LVal ConstExp VarDecl VarDef InitVal IfElse
 
 %type <ast_list> BlockItemList ConstDefList VarDefList
 %type <str_val> BType
+
+//优先级声明
+%precedence LOWER_THAN_ELSE    // 最低
+%precedence ELSE               // 更高
 
 
 %%
@@ -129,12 +133,16 @@ Block
 BlockItemList
   : BlockItem {
     auto ast_list = new std::vector<std::unique_ptr<BaseAST>>();
-    ast_list->push_back(unique_ptr<BaseAST>($1));
+    if ($1 != nullptr) {
+      ast_list->push_back(unique_ptr<BaseAST>($1));
+    }
     $$ = ast_list;
   }
   | BlockItemList BlockItem {
     auto ast_list = $1;
-    ast_list->push_back(unique_ptr<BaseAST>($2));
+    if ($2 != nullptr) {
+      ast_list->push_back(unique_ptr<BaseAST>($2));
+    }
     $$ = ast_list;
   }
   ;
@@ -147,10 +155,14 @@ BlockItem
     $$ = ast;
   }
   | Stmt {
-    auto ast = new BlockItemAST();
-    ast->type = 1;
-    ast->mem = shared_ptr<BaseAST>($1);
-    $$ = ast;
+    if ($1 == nullptr) {
+      $$ = nullptr;
+    } else {
+      auto ast = new BlockItemAST();
+      ast->type = 1;
+      ast->mem = unique_ptr<BaseAST>($1);
+      $$ = ast;
+    }
   }
 
 Stmt
@@ -160,6 +172,11 @@ Stmt
     ast->stmt = unique_ptr<BaseAST>($2);
     $$ = ast;
   }
+  | RETURN ';' {
+    auto ast = new StmtAST();
+    ast->type = Stmt_Type::AST_STMT_RETURN;
+    $$ = ast;
+  }
   | LVal '=' Exp ';' {
     auto ast = new StmtAST();
     ast->type = Stmt_Type::AST_STMT_ASSIGN;
@@ -167,6 +184,43 @@ Stmt
     assign.lval = std::unique_ptr<BaseAST>($1);
     assign.exp = std::unique_ptr<BaseAST>($3);
     ast->stmt = std::move(assign);
+    $$ = ast;
+  }
+  | ';' {
+    $$ = nullptr;
+  } 
+  | Block {
+    auto ast = new StmtAST();
+    ast->type = Stmt_Type::AST_STMT_BLOCK;
+    ast->stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | Exp ';' {
+    $$ = nullptr;
+  }
+  | IfElse {
+    $$ = $1;
+  }
+  ;
+
+IfElse
+  : IF '(' Exp ')' Stmt %prec LOWER_THAN_ELSE {
+    auto ast = new StmtAST();
+    ast->type = Stmt_Type::AST_STMT_IF_ELSE;
+    StmtAST::IfElse_STMT if_else;
+    if_else.exp = std::unique_ptr<BaseAST>($3);
+    if_else.if_stmt = std::unique_ptr<BaseAST>($5);
+    ast->stmt = std::move(if_else);
+    $$ = ast;
+  }
+  | IF '(' Exp ')' Stmt ELSE Stmt {
+    auto ast = new StmtAST();
+    ast->type = Stmt_Type::AST_STMT_IF_ELSE;
+    StmtAST::IfElse_STMT if_else;
+    if_else.exp = std::unique_ptr<BaseAST>($3);
+    if_else.if_stmt = std::unique_ptr<BaseAST>($5);
+    if_else.else_stmt = std::unique_ptr<BaseAST>($7);
+    ast->stmt = std::move(if_else);
     $$ = ast;
   }
   ;

@@ -255,3 +255,17 @@ void AssemblyGenerator::Visit(Value_STORE *store) {
   reg_allocator->Clear();
 }
 
+void AssemblyGenerator::Visit(Value_JUMP *jump) {
+  LOG("Value_JUMP");
+  // 访问跳转指令
+  fs << " j " << jump->dst_name << std::endl;
+}
+
+void AssemblyGenerator::Visit(Value_BRANCH *branch) {
+  LOG("Value_BRANCH");
+  // 访问分支指令
+  fs << " br " << branch->cond->name << ", " << branch->then_name << ", " << branch->else_name << std::endl;
+}
+
+
+

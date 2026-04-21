@@ -52,6 +52,10 @@ class IRgenerator : public ASTVisitor {
 
     // 表示临时变量的编号
     int count = 0;
+    // if else 的编号
+    int if_count = 0;
+    int else_count = 0;
+    int end_count = 0;
 
     // 符号表
     std::unique_ptr<SymbolTable> symbol_table;
@@ -62,7 +66,7 @@ class IROutputer : public IRVisitor {
   public:
     IROutputer();
 
-    IROutputer(std::string output);
+    IROutputer(std::string output, std::unique_ptr<SymbolTable> symbol_table);
     
     ~IROutputer();
     // 对IR节点进行访问函数
@@ -73,9 +77,12 @@ class IROutputer : public IRVisitor {
     void Visit(Value_ALLOC* alloc) override;
     void Visit(Value_LOAD* load) override;
     void Visit(Value_STORE* store) override;
+    void Visit(Value_BRANCH* branch) override;
+    void Visit(Value_JUMP* jump) override;
     void Visit(BasicBlock* block) override;
     void Visit(Function* func) override;
     void Visit(Program* program) override;
 
     std::fstream fs;
+    std::unique_ptr<SymbolTable> symbol_table;
 };

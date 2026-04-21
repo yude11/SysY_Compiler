@@ -27,7 +27,7 @@ void IRgenerator::Visit(FuncTypeAST* ast) {
 void IRgenerator::Visit(FuncDefAST* ast) {
   LOG("FuncDefAST");
   // std::cout << "FuncDefAST { " << ast->type << " }" << std::endl;
-  current_block = std::make_unique<BasicBlock>("null");
+  current_block = std::make_unique<BasicBlock>("%entry");
   ast->func_type->Accept(this);
   current_func->name = ast->ident;
   // 访问block中的语句，构造current_block
@@ -38,17 +38,19 @@ void IRgenerator::Visit(FuncDefAST* ast) {
 
 void IRgenerator::Visit(BlockAST* ast) {
   LOG("BlockAST");
+  symbol_table->Push();
   // std::cout << "BlockAST { " << ast->type << " }" << std::endl;
   for (auto& item : *(ast->block_items)) {
     item->Accept(this);
   }
+  symbol_table->Pop();
 }
 
 void IRgenerator::Visit(StmtAST* ast) {
   LOG("StmtAST");
   switch (ast->type) {
     case Stmt_Type::AST_STMT_RETURN: {
-      auto return_stmt = std::get<StmtAST::RETURN_STMT>(ast->stmt);
+      auto& return_stmt = std::get<StmtAST::RETURN_STMT>(ast->stmt);
       return_stmt->Accept(this);
         // 从栈中弹出值
       assert(!current_value_stack.empty());
@@ -59,7 +61,7 @@ void IRgenerator::Visit(StmtAST* ast) {
       break;
     }
     case Stmt_Type::AST_STMT_ASSIGN: {
-      auto assign_stmt = std::get<StmtAST::Assign_STMT>(ast->stmt);
+      auto& assign_stmt = std::get<StmtAST::Assign_STMT>(ast->stmt);
       /// 首先进行语义判断，确保lval是可赋的变量
       auto lval = static_cast<LValAST*>(assign_stmt.lval.get());
       // 1. 判断lval是否在符号表中
@@ -68,7 +70,7 @@ void IRgenerator::Visit(StmtAST* ast) {
         assert(0);
       }
       // 2. 判断lval是否为常量
-      auto symbol = symbol_table->table[lval->ident];
+      auto symbol = symbol_table->FindSymbol(lval->ident);
       if (symbol.is_const) {
         std::cerr << "error : " << lval->ident << " is const" << std::endl;
         assert(0);
@@ -85,6 +87,63 @@ void IRgenerator::Visit(StmtAST* ast) {
       current_block->stmts.push_back(std::make_shared<Value_STORE>(val, variable));
       break;
     }
+    case Stmt_Type::AST_STMT_BLOCK: {
+      auto& block_stmt = std::get<StmtAST::Block_STMT>(ast->stmt);
+      block_stmt->Accept(this);
+      break;
+    }
+    case Stmt_Type::AST_STMT_IF_ELSE: {
+      auto& if_else_stmt = std::get<StmtAST::IfElse_STMT>(ast->stmt);
+      // 1. if 条件判断
+      if_else_stmt.exp->Accept(this);
+      assert(!current_value_stack.empty());
+      auto val = current_value_stack.top();
+      current_value_stack.pop();
+      // 2. 生成跳转指令
+      if (if_else_stmt.else_stmt != nullptr) {
+        std::string then_name = "%then" + std::to_string(if_count++);
+        std::string else_name = "%else" + std::to_string(else_count++);
+        std::string end_name = "%end" + std::to_string(end_count++);
+        // 生成分支指令
+        current_block->stmts.push_back(std::make_shared<Value_BRANCH>(val, then_name, else_name));
+        current_func->blocks.push_back(std::move(current_block));
+        // 生成 if 基本块
+        current_block = std::make_unique<BasicBlock>(then_name);
+        if_else_stmt.if_stmt->Accept(this);
+        if (!current_block->stmts.empty() && current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
+          current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
+        }
+        current_func->blocks.push_back(std::move(current_block));
+        // 生成 else 基本块
+        current_block = std::make_unique<BasicBlock>(else_name);
+        if_else_stmt.else_stmt->Accept(this);
+        if (!current_block->stmts.empty() && current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
+          current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
+        }
+        current_func->blocks.push_back(std::move(current_block));
+        // 生成 end 基本块
+        current_block = std::make_unique<BasicBlock>(end_name);
+        
+      } else {
+        std::string then_name = "%then" + std::to_string(if_count++);
+        std::string end_name = "%end" + std::to_string(end_count++);
+        // 生成分支指令
+        current_block->stmts.push_back(std::make_shared<Value_BRANCH>(val, then_name, end_name));
+        current_func->blocks.push_back(std::move(current_block));
+        // 生成 if 基本块
+        current_block = std::make_unique<BasicBlock>(then_name);
+        if_else_stmt.if_stmt->Accept(this);
+        if (!current_block->stmts.empty() && current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
+          current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
+        }
+        current_func->blocks.push_back(std::move(current_block));
+        // 生成 end 基本块
+        current_block = std::make_unique<BasicBlock>(end_name);
+      }
+      break;
+    }
+    default:
+      break;
   }
 }
 
@@ -471,7 +530,7 @@ void IRgenerator::Visit(BlockItemAST* ast) {
     std::get<std::unique_ptr<BaseAST>>(ast->mem)->Accept(this);
   } else {
     // Exp
-    std::get<std::shared_ptr<BaseAST>>(ast->mem)->Accept(this);
+    std::get<std::unique_ptr<BaseAST>>(ast->mem)->Accept(this); 
   }
 }
 
@@ -494,7 +553,7 @@ void IRgenerator::Visit(ConstDefAST* ast) {
 void IRgenerator::Visit(LValAST* ast) {
   LOG("LValAST");
   auto val = symbol_table->FindValue(ast->ident);
-  if (!symbol_table->table[ast->ident].is_const) {
+  if (!symbol_table->FindSymbol(ast->ident).is_const) {
     /// 载入变量，生成load指令
     auto load_val = std::make_shared<Value_LOAD>("%" + std::to_string(count++), val);
     current_block->stmts.push_back(load_val);
@@ -543,13 +602,13 @@ void IRgenerator::Visit(VarDeclAST* ast) {
 
 
 void IRgenerator::OutputIR(std::string output) {
-  IROutputer out(output);
+  IROutputer out(output, std::move(symbol_table));
   program->Accept(&out);
 }
 
 IROutputer::IROutputer() {}
 
-IROutputer::IROutputer(std::string output) : fs(output, std::ios::out) {}
+IROutputer::IROutputer(std::string output, std::unique_ptr<SymbolTable> symbol_table) : fs(output, std::ios::out), symbol_table(std::move(symbol_table)) {}
 
 IROutputer::~IROutputer() {}
 
@@ -616,7 +675,7 @@ void IROutputer::Visit(Value_REF* ref) {
 }
 
 void IROutputer::Visit(BasicBlock* block) {
-  fs << "%entry: " << std::endl;
+  fs << block->name << ": " << std::endl;
   for (auto& stmt : block->stmts) {
     stmt->Accept(this);
   }
@@ -637,14 +696,21 @@ void IROutputer::Visit(Program* program) {
 }
 
 void IROutputer::Visit(Value_ALLOC* alloc) {
-  fs << "  " << alloc->name << " = alloc " << alloc->elem_type << std::endl;
+  fs << "  " << symbol_table->GetName(alloc) << " = alloc " << alloc->elem_type << std::endl;
 }
 
 void IROutputer::Visit(Value_LOAD* load) {
-  fs << "  " << load->name << " = load " << load->src->name << std::endl;
+  fs << "  " << load->name << " = load " << symbol_table->GetName(load->src.get()) << std::endl;
 }
 
 void IROutputer::Visit(Value_STORE* store) {
-  fs << "  store " << store->value->name << ", " << store->dst->name << std::endl;
+  fs << "  store " << store->value->name << ", " << symbol_table->GetName(store->dst.get()) << std::endl;
 }
 
+void IROutputer::Visit(Value_JUMP* jump) {
+  fs << "  jump " << jump->dst_name << std::endl;
+}
+
+void IROutputer::Visit(Value_BRANCH* branch) {
+  fs << "  br " << branch->cond->name << ", " << branch->then_name << ", " << branch->else_name << std::endl;
+}
