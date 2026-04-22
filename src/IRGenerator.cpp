@@ -27,7 +27,7 @@ void IRgenerator::Visit(FuncTypeAST* ast) {
 void IRgenerator::Visit(FuncDefAST* ast) {
   LOG("FuncDefAST");
   // std::cout << "FuncDefAST { " << ast->type << " }" << std::endl;
-  current_block = std::make_unique<BasicBlock>("%entry");
+  current_block = std::make_unique<BasicBlock>("entry");
   ast->func_type->Accept(this);
   current_func->name = ast->ident;
   // 访问block中的语句，构造current_block
@@ -94,52 +94,49 @@ void IRgenerator::Visit(StmtAST* ast) {
     }
     case Stmt_Type::AST_STMT_IF_ELSE: {
       auto& if_else_stmt = std::get<StmtAST::IfElse_STMT>(ast->stmt);
-      // 1. if 条件判断
+      
+      // Step 1: 计算条件表达式
       if_else_stmt.exp->Accept(this);
       assert(!current_value_stack.empty());
-      auto val = current_value_stack.top();
+      auto cond_val = current_value_stack.top();
       current_value_stack.pop();
-      // 2. 生成跳转指令
+      
+      // Step 2: 生成基本块名称
+      std::string then_name = "then" + std::to_string(if_count++);
+      std::string end_name = "end" + std::to_string(end_count++);
+      std::string else_name = if_else_stmt.else_stmt != nullptr 
+                              ? "else" + std::to_string(else_count++) 
+                              : end_name;
+      
+      // Step 3: 生成分支指令
+      //   br %cond, %then, %else (或 %end 如果没有else)
+      current_block->stmts.push_back(std::make_shared<Value_BRANCH>(cond_val, then_name, else_name));
+      current_func->blocks.push_back(std::move(current_block));
+      
+      // Step 4: 生成 then 基本块
+      //   ... if语句体 ...
+      //   jump %end (如果不是return结尾)
+      current_block = std::make_unique<BasicBlock>(then_name);
+      if_else_stmt.if_stmt->Accept(this);
+      if (current_block->stmts.empty() || current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
+        current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
+      }
+      current_func->blocks.push_back(std::move(current_block));
+      
+      // Step 5: 生成 else 基本块 (如果有)
+      //   ... else语句体 ...
+      //   jump %end (如果不是return结尾)
       if (if_else_stmt.else_stmt != nullptr) {
-        std::string then_name = "%then" + std::to_string(if_count++);
-        std::string else_name = "%else" + std::to_string(else_count++);
-        std::string end_name = "%end" + std::to_string(end_count++);
-        // 生成分支指令
-        current_block->stmts.push_back(std::make_shared<Value_BRANCH>(val, then_name, else_name));
-        current_func->blocks.push_back(std::move(current_block));
-        // 生成 if 基本块
-        current_block = std::make_unique<BasicBlock>(then_name);
-        if_else_stmt.if_stmt->Accept(this);
-        if (!current_block->stmts.empty() && current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
-          current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
-        }
-        current_func->blocks.push_back(std::move(current_block));
-        // 生成 else 基本块
         current_block = std::make_unique<BasicBlock>(else_name);
         if_else_stmt.else_stmt->Accept(this);
-        if (!current_block->stmts.empty() && current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
+        if (current_block->stmts.empty() || current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
           current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
         }
         current_func->blocks.push_back(std::move(current_block));
-        // 生成 end 基本块
-        current_block = std::make_unique<BasicBlock>(end_name);
-        
-      } else {
-        std::string then_name = "%then" + std::to_string(if_count++);
-        std::string end_name = "%end" + std::to_string(end_count++);
-        // 生成分支指令
-        current_block->stmts.push_back(std::make_shared<Value_BRANCH>(val, then_name, end_name));
-        current_func->blocks.push_back(std::move(current_block));
-        // 生成 if 基本块
-        current_block = std::make_unique<BasicBlock>(then_name);
-        if_else_stmt.if_stmt->Accept(this);
-        if (!current_block->stmts.empty() && current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
-          current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
-        }
-        current_func->blocks.push_back(std::move(current_block));
-        // 生成 end 基本块
-        current_block = std::make_unique<BasicBlock>(end_name);
       }
+      
+      // Step 6: 生成 end 基本块
+      current_block = std::make_unique<BasicBlock>(end_name);
       break;
     }
     default:
@@ -180,32 +177,124 @@ void IRgenerator::Visit(UnaryExpAST* ast) {
 void IRgenerator::Visit(LOrExpAST* ast) {
   LOG("LOrExpAST");
   if (ast->type == 0) {
-    // LOrExp
+    // 单一表达式，直接访问子节点
     auto& l_or = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     l_or->Accept(this);
   } else {
-    // LOrExp BinaryOp LOrExp
+    // LOrExp || LAndExp
+    // 短路求值算法: lhs || rhs
+    //   int result = 1;
+    //   if (lhs == 0) result = (rhs != 0);
+    //   return result;
     auto& l_or = std::get<LOrExpAST::LOrExp>(ast->mem);
-    l_or.l_and_exp->Accept(this);
-    l_or.eq_exp->Accept(this);
-    // 先访问左右操作数，再访问 l_or_op
-    l_or.l_or_op->Accept(this);
+    
+    // Step 1: 分配临时变量，默认值为 1 (true)
+    //   @result = alloc i32
+    //   store 1, @result
+    auto alloc = std::make_shared<Value_ALLOC>("@result", "i32");
+    symbol_table->Insert(alloc->name, alloc, false, "i32");
+    auto assign = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(1), alloc);
+    current_block->stmts.push_back(alloc);
+    current_block->stmts.push_back(assign);
+    
+    // Step 2: 计算 lhs 和 rhs 的值
+    l_or.l_or_exp->Accept(this);  // lhs
+    auto lhs_val = current_value_stack.top();
+    current_value_stack.pop();
+    l_or.l_and_exp->Accept(this); // rhs
+    auto rhs_val = current_value_stack.top();
+    current_value_stack.pop();
+    
+    // Step 3: 生成分支指令
+    //   %cond = eq lhs, 0
+    //   br %cond, %then, %end
+    auto then_name = "then" + std::to_string(if_count++);
+    auto end_name = "end" + std::to_string(end_count++);
+    auto eq = std::make_shared<Value_BINARY>("%"+std::to_string(count++), lhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_EQ);
+    current_block->stmts.push_back(eq);
+    auto if_branch = std::make_shared<Value_BRANCH>(eq, then_name, end_name);
+    current_block->stmts.push_back(if_branch);
+    current_func->blocks.push_back(std::move(current_block));
+    
+    // Step 4: 生成 then 基本块 (lhs 为 false 时执行)
+    //   %rhs_bool = ne rhs, 0
+    //   store %rhs_bool, @result
+    //   jump %end
+    current_block = std::make_unique<BasicBlock>(then_name);
+    auto neq = std::make_shared<Value_BINARY>("%"+std::to_string(count++), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
+    current_block->stmts.push_back(neq);
+    current_block->stmts.push_back(std::make_shared<Value_STORE>(neq, alloc));
+    current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
+    current_func->blocks.push_back(std::move(current_block));
+    
+    // Step 5: 生成 end 基本块，加载结果并压栈
+    //   %result = load @result
+    current_block = std::make_unique<BasicBlock>(end_name);
+    auto load = std::make_shared<Value_LOAD>("%"+std::to_string(count++), alloc);
+    current_block->stmts.push_back(load);
+    current_value_stack.push(load);
   }
 }
 
 void IRgenerator::Visit(LAndExpAST* ast) {
   LOG("LAndExpAST");
   if (ast->type == 0) {
-    // LAndExp
+    // 单一表达式，直接访问子节点
     auto& l_and = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     l_and->Accept(this);
   } else {
-    // LAndExp BinaryOp LAndExp
+    // LAndExp && EqExp
+    // 短路求值算法: lhs && rhs
+    //   int result = 0;
+    //   if (lhs != 0) result = (rhs != 0);
+    //   return result;
     auto& l_and = std::get<LAndExpAST::LAndExp>(ast->mem);
-    l_and.l_and_exp->Accept(this);
-    l_and.eq_exp->Accept(this);
-    // 先访问左右操作数，再访问 l_and_op
-    l_and.l_and_op->Accept(this);
+    
+    // Step 1: 分配临时变量，默认值为 0 (false)
+    //   @result = alloc i32
+    //   store 0, @result
+    auto alloc = std::make_shared<Value_ALLOC>("@result", "i32");
+    symbol_table->Insert(alloc->name, alloc, false, "i32");
+    auto assign = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(0), alloc);
+    current_block->stmts.push_back(alloc);
+    current_block->stmts.push_back(assign);
+    
+    // Step 2: 计算 lhs 和 rhs 的值
+    l_and.l_and_exp->Accept(this);  // lhs
+    auto lhs_val = current_value_stack.top();
+    current_value_stack.pop();
+    l_and.eq_exp->Accept(this);     // rhs
+    auto rhs_val = current_value_stack.top();
+    current_value_stack.pop();
+    
+    // Step 3: 生成分支指令
+    //   %cond = ne lhs, 0    (或 eq lhs, 1)
+    //   br %cond, %then, %end
+    auto then_name = "then" + std::to_string(if_count++);
+    auto end_name = "end" + std::to_string(end_count++);
+    auto eq = std::make_shared<Value_BINARY>("%"+std::to_string(count++), lhs_val, std::make_shared<Value_INTEGER>(1), Binary_Op_Type::KOOPA_RBO_EQ);
+    current_block->stmts.push_back(eq);
+    auto if_branch = std::make_shared<Value_BRANCH>(eq, then_name, end_name);
+    current_block->stmts.push_back(if_branch);
+    current_func->blocks.push_back(std::move(current_block));
+    
+    // Step 4: 生成 then 基本块 (lhs 为 true 时执行)
+    //   %rhs_bool = ne rhs, 0
+    //   store %rhs_bool, @result
+    //   jump %end
+    current_block = std::make_unique<BasicBlock>(then_name);
+    auto neq = std::make_shared<Value_BINARY>("%"+std::to_string(count++), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
+    current_block->stmts.push_back(neq);
+    current_block->stmts.push_back(std::make_shared<Value_STORE>(neq, alloc));
+    current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
+    current_func->blocks.push_back(std::move(current_block));
+    
+    // Step 5: 生成 end 基本块，加载结果并压栈
+    //   %result = load @result
+    current_block = std::make_unique<BasicBlock>(end_name);
+    auto load = std::make_shared<Value_LOAD>("%"+std::to_string(count++), alloc);
+    current_block->stmts.push_back(load);
+    current_value_stack.push(load);
   }
 }
 
@@ -437,90 +526,8 @@ void IRgenerator::Visit(BinaryOpAST* ast) {
 }
 
 void IRgenerator::Visit(LGBinaryOpAST* ast) {
-  // 由于架构问题，暂时不支持短路求值
   LOG("LGBinaryOpAST");
-  assert(current_value_stack.size() >= 2);
-  std::shared_ptr<Value> rhs = current_value_stack.top();
-  current_value_stack.pop();
-  std::shared_ptr<Value> lhs = current_value_stack.top();
-  current_value_stack.pop();
-
-  // 如果左操作数和右操作数都是常量，直接计算结果
-  if (lhs->type == Value_Type::KOOPA_RVT_INTEGER && rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
-    auto l = static_cast<Value_INTEGER*>(lhs.get());
-    auto r = static_cast<Value_INTEGER*>(rhs.get());
-    switch (ast->op) {
-      case Op_Type::AST_BINARY_OP_LA:
-        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val && r->val));
-        break;
-      case Op_Type::AST_BINARY_OP_LO:
-        current_value_stack.push(std::make_shared<Value_INTEGER>(l->val || r->val));
-        break;
-      default:
-        // should not reach here
-        assert(0);
-        break;
-    }
-    return ;
-  }
-
-  // 如果左操作数和右操作数不是常量，翻译为指令
-  switch (ast->op) {
-    case Op_Type::AST_BINARY_OP_LA: {
-      // 逻辑与翻译为三条指令  
-      // 1. "$0 = ne lhs 0"
-      std::string name = "%" + std::to_string(count++);
-      auto val1 = std::make_shared<Value_BINARY>(name, 
-        lhs,
-        std::make_shared<Value_INTEGER>(0),
-        Binary_Op_Type::KOOPA_RBO_NOT_EQ
-      );
-      current_block->stmts.push_back(val1);
-      // 2. "$1 = ne rhs 0"
-      name = "%" + std::to_string(count++);
-      auto val2 = std::make_shared<Value_BINARY>(name, 
-        rhs,
-        std::make_shared<Value_INTEGER>(0),
-        Binary_Op_Type::KOOPA_RBO_NOT_EQ
-      );
-      current_block->stmts.push_back(val2);
-      // 3. "$2 = and $0 $1" ( and 为按位与)
-      name = "%" + std::to_string(count++);
-      auto val3 = std::make_shared<Value_BINARY>(name, 
-        val1,
-        val2,
-        Binary_Op_Type::KOOPA_RBO_AND
-      );
-      current_block->stmts.push_back(val3);
-      // 生成的val加入栈
-      current_value_stack.push(val3);
-      break;
-    }
-    case Op_Type::AST_BINARY_OP_LO: {
-      // 逻辑或翻译为两条指令
-      // 1. "$0 = or lhs rhs"
-      std::string name = "%" + std::to_string(count++);
-      auto val1 = std::make_shared<Value_BINARY>(name, 
-        lhs,
-        std::make_shared<Value_INTEGER>(0),
-        Binary_Op_Type::KOOPA_RBO_OR
-      );
-      current_block->stmts.push_back(val1);
-      // 2. "$1 = ne $0 0"
-      name = "%" + std::to_string(count++);
-      auto val2 = std::make_shared<Value_BINARY>(name, 
-        val1,
-        std::make_shared<Value_INTEGER>(0),
-        Binary_Op_Type::KOOPA_RBO_NOT_EQ
-      );
-      current_block->stmts.push_back(val2);
-      // 生成的val加入栈
-      current_value_stack.push(val2);
-      break;
-    }
-    default:
-      break;
-  }
+  // 已经在上一级节点实现, NEVER REACH HERE
 }
 
 void IRgenerator::Visit(BlockItemAST* ast) {
@@ -546,7 +553,6 @@ void IRgenerator::Visit(ConstDeclAST* ast) {
 
 void IRgenerator::Visit(ConstDefAST* ast) {
   LOG("ConstDefAST");
-  // symbol_table->Insert(ast->ident, nullptr, true, {});
   // 上一层直接处理了，所以应该不会到达这里
 }
 
@@ -599,7 +605,9 @@ void IRgenerator::Visit(VarDeclAST* ast) {
 
 }
 
-
+void IRgenerator::Visit(NullAST* ast) {
+  // LOG("NullAST");
+}
 
 void IRgenerator::OutputIR(std::string output) {
   IROutputer out(output, std::move(symbol_table));
@@ -675,9 +683,12 @@ void IROutputer::Visit(Value_REF* ref) {
 }
 
 void IROutputer::Visit(BasicBlock* block) {
-  fs << block->name << ": " << std::endl;
+  fs << "%" +block->name << ": " << std::endl;
   for (auto& stmt : block->stmts) {
     stmt->Accept(this);
+    if (stmt->type == Value_Type::KOOPA_RVT_RETURN) {
+      break;
+    }
   }
 }
 
@@ -704,13 +715,25 @@ void IROutputer::Visit(Value_LOAD* load) {
 }
 
 void IROutputer::Visit(Value_STORE* store) {
-  fs << "  store " << store->value->name << ", " << symbol_table->GetName(store->dst.get()) << std::endl;
+  std::string value_name;
+  if (store->value->type == Value_Type::KOOPA_RVT_ALLOC) {
+    value_name = symbol_table->GetName(store->value.get());
+  } else {
+    value_name = store->value->name;  // 对于INTEGER等直接使用name
+  }
+  fs << "  store " << value_name << ", " << symbol_table->GetName(store->dst.get()) << std::endl;
 }
 
 void IROutputer::Visit(Value_JUMP* jump) {
-  fs << "  jump " << jump->dst_name << std::endl;
+  fs << "  jump " << "%" + jump->dst_name << std::endl;
 }
 
 void IROutputer::Visit(Value_BRANCH* branch) {
-  fs << "  br " << branch->cond->name << ", " << branch->then_name << ", " << branch->else_name << std::endl;
+  std::string cond_name;
+  if (branch->cond->type == Value_Type::KOOPA_RVT_ALLOC) {
+    cond_name = symbol_table->GetName(branch->cond.get());
+  } else {
+    cond_name = branch->cond->name;  // 对于INTEGER等直接使用name
+  }
+  fs << "  br " << cond_name << ", " << "%" + branch->then_name << ", " << "%" + branch->else_name << std::endl;
 }

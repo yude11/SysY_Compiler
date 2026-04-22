@@ -31,6 +31,10 @@ void AssemblyGenerator::Visit(Function *func) {
   LOG("Function");
   // 访问函数体基本块
   fs << func->name << ":" << std::endl;
+  reg_allocator->Scan(func);
+  if (reg_allocator->stack_offset != 0) {
+    fs << " addi  sp, sp, -" << reg_allocator->stack_offset << std::endl;
+  }
   for (auto& block : func->blocks) {
     block->Accept(this);
   }
@@ -40,9 +44,10 @@ void AssemblyGenerator::Visit(Function *func) {
 void AssemblyGenerator::Visit(BasicBlock *block) {
   LOG("BasicBlock");
   // 扫描基本块体语句，分配栈空间
-  reg_allocator->Scan(block);
-  fs << " addi  sp, sp, -" << reg_allocator->stack_offset << std::endl;
   // 访问基本块体语句
+  if (block->name != "entry") {
+    fs << block->name << ":" << std::endl;
+  }
   for (auto& stmt : block->stmts) {
     if (stmt->type == Value_Type::KOOPA_RVT_ALLOC) {
       continue;
@@ -65,7 +70,9 @@ void AssemblyGenerator::Visit(Value_RETURN *return_val) {
   }
   reg_allocator->Clear();
   // 恢复栈指针
-  fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
+  if (reg_allocator->stack_offset != 0) {
+    fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
+  }
   fs << " ret" << std::endl;
 }
 
@@ -245,7 +252,6 @@ void AssemblyGenerator::Visit(Value_STORE *store) {
   if (store->value->type == Value_Type::KOOPA_RVT_INTEGER) {
     fs << " li    " << r << ", " << store->value->name << std::endl;
   } else {
-    reg_allocator->GetLoc(store->value.get());
     fs << " lw    " << r << ", " << reg_allocator->GetLoc(store->value.get()) << "(sp)" << std::endl;
   }
   // 2. 从栈中加载当前 @x 的偏移，将 %0 中的值存到 @x 中
@@ -257,14 +263,23 @@ void AssemblyGenerator::Visit(Value_STORE *store) {
 
 void AssemblyGenerator::Visit(Value_JUMP *jump) {
   LOG("Value_JUMP");
-  // 访问跳转指令
+  // 访问跳转指令 jump %end
   fs << " j " << jump->dst_name << std::endl;
 }
 
 void AssemblyGenerator::Visit(Value_BRANCH *branch) {
   LOG("Value_BRANCH");
-  // 访问分支指令
-  fs << " br " << branch->cond->name << ", " << branch->then_name << ", " << branch->else_name << std::endl;
+  // 访问分支指令 br %0, %then, %else
+  // 1. 访问 %0 并分配寄存器
+  auto r = reg_allocator->Alloc(branch->cond.get());
+  if (branch->cond->type == Value_Type::KOOPA_RVT_INTEGER) {
+    fs << " li    " << r << ", " << branch->cond->name << std::endl;
+  } else {
+    fs << " lw    " << r << ", " << reg_allocator->GetLoc(branch->cond.get()) << "(sp)" << std::endl;
+  }
+  // 2. 访问 %then, %else 并分配寄存器
+  fs << " bnez  " << r << ", " << branch->then_name << std::endl;
+  fs << " j     " << branch->else_name << std::endl;
 }
 
 

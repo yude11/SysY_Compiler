@@ -79,20 +79,23 @@ public:
     return -1;  // 未找到
   }
 
-  void Scan(BasicBlock* block) {
-    for (auto stmt : block->stmts) {
-      switch (stmt->type) {
-      case Value_Type::KOOPA_RVT_ALLOC:
-      case Value_Type::KOOPA_RVT_LOAD:
-      case Value_Type::KOOPA_RVT_BINARY:
-        value_to_loc[stmt.get()] = stack_offset;
-        stack_offset+=4;
-        break;
-      case Value_Type::KOOPA_RVT_INTEGER:
-        assert(0 && "error: error instruction type: INTEGER");
-        break;
-      default:
-        break;
+  void Scan(Function* func) {
+    for (int i = 0; i < func->blocks.size(); i++) {
+      auto block = func->blocks[i].get();
+      for (auto stmt : block->stmts) {
+        switch (stmt->type) {
+        case Value_Type::KOOPA_RVT_ALLOC:
+        case Value_Type::KOOPA_RVT_LOAD:
+        case Value_Type::KOOPA_RVT_BINARY:
+          value_to_loc[stmt.get()] = stack_offset;
+          stack_offset+=4;
+          break;
+        case Value_Type::KOOPA_RVT_INTEGER:
+          assert(0 && "error: error instruction type: INTEGER");
+          break;
+        default:
+          break;
+        }
       }
     }
   }

@@ -7,6 +7,7 @@
 #include <fstream>
 
 class BaseAST;
+class NullAST;
 class CompUnitAST;
 class FuncTypeAST;
 class FuncDefAST;
@@ -67,6 +68,7 @@ class ASTVisitor : public Visitor {
     virtual void Visit(LValAST* ast) = 0;
     virtual void Visit(VarDefAST* ast) = 0;
     virtual void Visit(VarDeclAST* ast) = 0;
+    virtual void Visit(NullAST* ast) = 0;
 };
 
 class Value;

@@ -41,6 +41,7 @@ class IRgenerator : public ASTVisitor {
     void Visit(LValAST* ast) override;
     void Visit(VarDefAST* ast) override;
     void Visit(VarDeclAST* ast) override;
+    void Visit(NullAST* ast) override;
 
     // 输出IR表示
     void OutputIR(std::string output);

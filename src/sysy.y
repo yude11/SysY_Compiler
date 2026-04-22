@@ -205,23 +205,39 @@ Stmt
 
 IfElse
   : IF '(' Exp ')' Stmt %prec LOWER_THAN_ELSE {
-    auto ast = new StmtAST();
-    ast->type = Stmt_Type::AST_STMT_IF_ELSE;
-    StmtAST::IfElse_STMT if_else;
-    if_else.exp = std::unique_ptr<BaseAST>($3);
-    if_else.if_stmt = std::unique_ptr<BaseAST>($5);
-    ast->stmt = std::move(if_else);
-    $$ = ast;
+    if ($5 == nullptr) {
+      $$ = nullptr;
+    } else {
+      auto ast = new StmtAST();
+      ast->type = Stmt_Type::AST_STMT_IF_ELSE;
+      StmtAST::IfElse_STMT if_else;
+      if_else.exp = std::unique_ptr<BaseAST>($3);
+      if_else.if_stmt = std::unique_ptr<BaseAST>($5);
+      ast->stmt = std::move(if_else);
+      $$ = ast;
+    }
   }
   | IF '(' Exp ')' Stmt ELSE Stmt {
-    auto ast = new StmtAST();
-    ast->type = Stmt_Type::AST_STMT_IF_ELSE;
-    StmtAST::IfElse_STMT if_else;
-    if_else.exp = std::unique_ptr<BaseAST>($3);
-    if_else.if_stmt = std::unique_ptr<BaseAST>($5);
-    if_else.else_stmt = std::unique_ptr<BaseAST>($7);
-    ast->stmt = std::move(if_else);
-    $$ = ast;
+    if ($5 == nullptr && $7 == nullptr) {
+      $$ = nullptr;
+    } else {
+      auto ast = new StmtAST();
+      ast->type = Stmt_Type::AST_STMT_IF_ELSE;
+      StmtAST::IfElse_STMT if_else;
+      if_else.exp = std::unique_ptr<BaseAST>($3);
+      if ($5 == nullptr) {
+        if_else.if_stmt = std::make_unique<NullAST>();
+      } else {
+        if_else.if_stmt = std::unique_ptr<BaseAST>($5);
+      }
+      if ($7 == nullptr) {
+        if_else.else_stmt = std::make_unique<NullAST>();
+      } else {
+        if_else.else_stmt = std::unique_ptr<BaseAST>($7);
+      }
+      ast->stmt = std::move(if_else);
+      $$ = ast;
+    }
   }
   ;
 

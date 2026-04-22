@@ -18,6 +18,17 @@ class BaseAST {
   virtual void Accept(ASTVisitor *visitor) = 0;
 };
 
+class NullAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      std::cout << "NullAST";
+    }
+};
+
 class CompUnitAST : public BaseAST {
  public:
   void Accept(ASTVisitor *visitor) override {
@@ -110,22 +121,6 @@ class BlockItemAST : public BaseAST {
     int type = -1;
     std::variant<std::unique_ptr<BaseAST>, std::shared_ptr<BaseAST>> mem;
 };
-
-// class DeclAST : public BaseAST {
-//  public:
-//   void Accept(ASTVisitor *visitor) override {
-//     visitor->Visit(this);
-//   }
-
-//   void Dump() const override {
-//     std::cout << "DeclAST { ";
-//     mem->Dump();
-//     std::cout << " }";
-//   }
-
-//   int type = -1;
-//   std::unique_ptr<BaseAST> mem;
-// };
 
 class VarDeclAST : public BaseAST {
   public:
@@ -544,7 +539,7 @@ class LAndExpAST : public BaseAST {
                 , LAndExp> mem;
 };
                
-// LOrExp = LAndExp | LAndExp BinaryOp EqExp
+// LOrExp = LAndExp | LOrExp BinaryOp LAndExp
 class LOrExpAST : public BaseAST {
  public:
   void Accept(ASTVisitor *visitor) override {
@@ -556,20 +551,20 @@ class LOrExpAST : public BaseAST {
     if (type == 0) {
       std::get<std::unique_ptr<BaseAST>>(mem)->Dump();
     } else {
-      std::get<LOrExp>(mem).l_and_exp->Dump();
+      std::get<LOrExp>(mem).l_or_exp->Dump();
       std::cout << ", ";
       std::get<LOrExp>(mem).l_or_op->Dump();
       std::cout << ", ";
-      std::get<LOrExp>(mem).eq_exp->Dump();
+      std::get<LOrExp>(mem).l_and_exp->Dump();
     }
     std::cout << " }";
   }
 
   int type = -1;
   struct LOrExp {
-    std::unique_ptr<BaseAST> l_and_exp;
+    std::unique_ptr<BaseAST> l_or_exp;
     std::unique_ptr<BaseAST> l_or_op;
-    std::unique_ptr<BaseAST> eq_exp;
+    std::unique_ptr<BaseAST> l_and_exp;
   };
   std::variant<std::unique_ptr<BaseAST>
                 , LOrExp> mem;
