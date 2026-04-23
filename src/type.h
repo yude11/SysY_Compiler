@@ -131,6 +131,12 @@ typedef enum {
     AST_STMT_BLOCK,
     /// If-Else statement.
     AST_STMT_IF_ELSE,
+    /// While statement.
+    AST_STMT_WHILE,
+    /// Break statement.
+    AST_STMT_BREAK,
+    /// Continue statement.
+    AST_STMT_CONTINUE,
 } Stmt_Type;
 
 //变量，函数返回值的类型 

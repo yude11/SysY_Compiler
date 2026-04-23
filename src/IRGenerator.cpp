@@ -42,6 +42,9 @@ void IRgenerator::Visit(BlockAST* ast) {
   // std::cout << "BlockAST { " << ast->type << " }" << std::endl;
   for (auto& item : *(ast->block_items)) {
     item->Accept(this);
+    if (current_block->IsTerminated()) {
+      break;
+    }
   }
   symbol_table->Pop();
 }
@@ -58,6 +61,8 @@ void IRgenerator::Visit(StmtAST* ast) {
       current_value_stack.pop();
       // 将val加入到block
       current_block->stmts.push_back(std::make_shared<Value_RETURN>(val));
+      // 标记当前块已终止
+      current_block->Terminate();
       break;
     }
     case Stmt_Type::AST_STMT_ASSIGN: {
@@ -118,7 +123,7 @@ void IRgenerator::Visit(StmtAST* ast) {
       //   jump %end (如果不是return结尾)
       current_block = std::make_unique<BasicBlock>(then_name);
       if_else_stmt.if_stmt->Accept(this);
-      if (current_block->stmts.empty() || current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
+      if (!current_block->IsTerminated()) {
         current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
       }
       current_func->blocks.push_back(std::move(current_block));
@@ -129,7 +134,7 @@ void IRgenerator::Visit(StmtAST* ast) {
       if (if_else_stmt.else_stmt != nullptr) {
         current_block = std::make_unique<BasicBlock>(else_name);
         if_else_stmt.else_stmt->Accept(this);
-        if (current_block->stmts.empty() || current_block->stmts.back()->type != Value_Type::KOOPA_RVT_RETURN) {
+        if (!current_block->IsTerminated()) {
           current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
         }
         current_func->blocks.push_back(std::move(current_block));
@@ -137,6 +142,54 @@ void IRgenerator::Visit(StmtAST* ast) {
       
       // Step 6: 生成 end 基本块
       current_block = std::make_unique<BasicBlock>(end_name);
+      break;
+    }
+    case Stmt_Type::AST_STMT_WHILE: {
+      auto& while_stmt = std::get<StmtAST::While_STMT>(ast->stmt);
+      
+      // 1. 生成基本块信息
+      while_entry_stack.push(while_count);
+      std::string while_entry = "while_entry" + std::to_string(while_count);
+      std::string then_name = "while_body" + std::to_string(while_count);
+      std::string end_name = "while_end" + std::to_string(while_count++);
+      
+      // 2. 生成jump指令到while_entry
+      current_block->stmts.push_back(std::make_shared<Value_JUMP>(while_entry));
+      current_func->blocks.push_back(std::move(current_block));
+      
+      // 3. 生成个基本快
+      // 生成entry基本块
+      current_block = std::make_unique<BasicBlock>(while_entry);
+      while_stmt.exp->Accept(this);
+      assert(!current_value_stack.empty());
+      auto cond_val = current_value_stack.top();
+      current_value_stack.pop();
+      current_block->stmts.push_back(std::make_shared<Value_BRANCH>(cond_val, then_name, end_name));
+      current_func->blocks.push_back(std::move(current_block));
+      // 生成then基本块
+      current_block = std::make_unique<BasicBlock>(then_name);
+      while_stmt.while_stmt->Accept(this);
+      if (!current_block->IsTerminated()) {
+        current_block->stmts.push_back(std::make_shared<Value_JUMP>(while_entry));
+      }
+      current_func->blocks.push_back(std::move(current_block));
+      // 生成end基本块
+      while_entry_stack.pop();
+      current_block = std::make_unique<BasicBlock>(end_name);
+      break;
+    }
+    case Stmt_Type::AST_STMT_BREAK: {
+      std::string end_name = "while_end" + std::to_string(while_entry_stack.top());
+      current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
+      // 标记当前块已终止
+      current_block->Terminate();
+      break;
+    }
+    case Stmt_Type::AST_STMT_CONTINUE: {
+      std::string while_entry_name = "while_entry" + std::to_string(while_entry_stack.top());
+      current_block->stmts.push_back(std::make_shared<Value_JUMP>(while_entry_name));
+      // 标记当前块已终止
+      current_block->Terminate();
       break;
     }
     default:

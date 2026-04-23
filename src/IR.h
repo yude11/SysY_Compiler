@@ -164,9 +164,17 @@ class BasicBlock {
     void Accept(IRVisitor* visitor) {
       visitor->Visit(this);
     }
+    void Terminate() {
+      terminated = true;
+    }
+    bool IsTerminated() {
+      return terminated;
+    }
 
     std::string name;
     std::vector<std::shared_ptr<Value>> stmts;
+    // 是否已经终止（有return/break/continue/jump）
+    bool terminated = false;
 };
 
 // 函数

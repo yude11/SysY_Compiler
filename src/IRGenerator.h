@@ -55,8 +55,12 @@ class IRgenerator : public ASTVisitor {
     int count = 0;
     // if else 的编号
     int if_count = 0;
-    int else_count = 0;
+    int else_count = 0; 
     int end_count = 0;
+    // while 的编号
+    int while_count = 0;
+    // while 栈用于支持break和continue指令
+    std::stack<int> while_entry_stack;
 
     // 符号表
     std::unique_ptr<SymbolTable> symbol_table;

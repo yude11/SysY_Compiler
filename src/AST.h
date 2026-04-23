@@ -248,6 +248,14 @@ class StmtAST : public BaseAST {
         assign_stmt.exp->Dump();
         break;
       }
+      case Stmt_Type::AST_STMT_BREAK: {
+        std::cout << "BreakAST { }";
+        break;
+      }
+      case Stmt_Type::AST_STMT_CONTINUE: {
+        std::cout << "ContinueAST { }";
+        break;
+      }
       default:
         break;
     }
@@ -266,8 +274,12 @@ class StmtAST : public BaseAST {
     std::unique_ptr<BaseAST> if_stmt;
     std::unique_ptr<BaseAST> else_stmt;
   };
+  struct While_STMT {
+    std::unique_ptr<BaseAST> exp;
+    std::unique_ptr<BaseAST> while_stmt;
+  };
 
-  std::variant<Assign_STMT, Block_STMT, IfElse_STMT> stmt;
+  std::variant<Assign_STMT, Block_STMT, IfElse_STMT, While_STMT> stmt;
 };
 
 class OpAST : public BaseAST {
