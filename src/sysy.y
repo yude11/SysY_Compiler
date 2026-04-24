@@ -48,11 +48,13 @@ using namespace std;
   int int_val;
   BaseAST *ast_val;
   std::vector<std::unique_ptr<BaseAST>>* ast_list;
+  FuncDefAST::FuncParams* func_param_list;
+  FuncDefAST::FuncParam *func_param_val;
 }
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN GE LE EQ NE LAND LOR CONST IF ELSE WHILE BREAK CONTINUE
+%token INT RETURN GE LE EQ NE LAND LOR CONST IF ELSE WHILE BREAK CONTINUE VOID
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
@@ -62,13 +64,18 @@ using namespace std;
 
 // 非终结符的类型定义
 // %type <str_val> 
-%type <ast_val> CompUnit FuncDef FuncType Block Stmt Number PrimaryExp Exp 
+%type <ast_val> FuncDef FuncType Block Stmt Number PrimaryExp Exp
+%type <ast_list> FuncDefList 
 %type <ast_val> LOrExp LAndExp EqExp RelExp UnaryExp AddExp MulExp UnaryOp 
 %type <ast_val> AddOp MulOp RelOp EqOp LAndOp LOrOp BlockItem ConstDef Decl ConstDecl 
 %type <ast_val> ConstInitVal LVal ConstExp VarDecl VarDef InitVal IfElse
 
-%type <ast_list> BlockItemList ConstDefList VarDefList
+%type <ast_list> BlockItemList ConstDefList VarDefList FuncRParams
 %type <str_val> BType
+%type <func_param_val> FuncFParam
+%type <func_param_list> FuncFParams
+
+
 
 //优先级声明
 %precedence LOWER_THAN_ELSE    // 最低
@@ -77,16 +84,27 @@ using namespace std;
 
 %%
 
-// 开始符, CompUnit ::= FuncDef, 大括号后声明了解析完成后 parser 要做的事情
-// 之前我们定义了 FuncDef 会返回一个 str_val, 也就是字符串指针
-// 而 parser 一旦解析完 CompUnit, 就说明所有的 token 都被解析了, 即解析结束了
-// 此时我们应该把 FuncDef 返回的结果收集起来, 作为 AST 传给调用 parser 的函数
-// $1 指代规则里第一个符号的返回值, 也就是 FuncDef 的返回值
+// 开始符, CompUnit 是多个函数定义的列表
+// 使用 vector 结构避免递归和所有权问题
 CompUnit
-  : FuncDef {
+  : FuncDefList {
     auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_def = unique_ptr<BaseAST>($1);
+    comp_unit->func_defs = std::move(*$1);  // 转移 vector 所有权
+    delete $1;  // 释放临时的 vector 指针
     ast = std::move(comp_unit);
+  }
+  ;
+
+// FuncDefList 是函数定义列表，使用 vector 收集
+FuncDefList
+  : FuncDef {
+    auto list = new std::vector<std::unique_ptr<BaseAST>>();
+    list->emplace_back($1);  // 添加第一个函数
+    $$ = list;
+  }
+  | FuncDefList FuncDef {
+    $1->emplace_back($2);  // 追加到已有列表
+    $$ = $1;
   }
   ;
 
@@ -108,6 +126,14 @@ FuncDef
     ast->block = unique_ptr<BaseAST>($5);
     $$ = ast;
   }
+  | FuncType IDENT '(' FuncFParams ')' Block {
+    auto ast = new FuncDefAST();
+    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->block = unique_ptr<BaseAST>($6);
+    ast->func_params = std::unique_ptr<FuncDefAST::FuncParams>($4);
+    $$ = ast;
+  }
   ;
 
 // 同上, 不再解释
@@ -115,7 +141,32 @@ FuncType
   : INT {
     $$ = new FuncTypeAST("i32");
   }
+  | VOID {
+    $$ = new FuncTypeAST("void");
+  }
   ;
+
+  FuncFParams
+    : FuncFParam {
+      auto param_list = new FuncDefAST::FuncParams();
+      param_list->push_back(unique_ptr<FuncDefAST::FuncParam>($1));
+      $$ = param_list;
+    }
+    | FuncFParams ',' FuncFParam {
+      auto param_list = $1;
+      param_list->push_back(unique_ptr<FuncDefAST::FuncParam>($3));
+      $$ = param_list;
+    }
+    ;
+
+  FuncFParam
+    : BType IDENT {
+      auto param = new FuncDefAST::FuncParam();
+      param->type = *unique_ptr<string>($1);
+      param->ident = *unique_ptr<string>($2);
+      $$ = param;
+    }
+    ;
 
 Block
   : '{' '}' {
@@ -501,7 +552,31 @@ UnaryExp
     ast->mem = UnaryExpAST::UnaryExp{unique_ptr<BaseAST>($1), unique_ptr<BaseAST>($2)};
     $$ = ast;
   }
+  | IDENT '(' FuncRParams ')' {
+    auto ast = new FuncCallAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->params = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($3);
+    $$ = ast;
+  }
+  | IDENT '(' ')' {
+    auto ast = new FuncCallAST();
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
   ;
+
+  FuncRParams
+    : Exp {
+      auto ast_list = new std::vector<std::unique_ptr<BaseAST>>();
+      ast_list->push_back(unique_ptr<BaseAST>($1));
+      $$ = ast_list;
+    }
+    | FuncRParams ',' Exp {
+      auto ast_list = $1;
+      ast_list->push_back(unique_ptr<BaseAST>($3));
+      $$ = ast_list;
+    }
+    ;
 
 PrimaryExp
   : '(' Exp ')' {

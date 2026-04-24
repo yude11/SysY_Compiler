@@ -37,12 +37,14 @@ class CompUnitAST : public BaseAST {
 
   void Dump() const override {
    std::cout << "CompUnitAST { ";
-   
-   func_def->Dump();
+   for (auto& func : func_defs) {
+     func->Dump();
+   }
    std::cout << " }";
   }
   
-  std::unique_ptr<BaseAST> func_def;
+  // 使用 vector 存储所有函数定义
+  std::vector<std::unique_ptr<BaseAST>> func_defs;
   
 };
 
@@ -79,6 +81,12 @@ class FuncDefAST : public BaseAST {
   std::unique_ptr<BaseAST> func_type;
   std::string ident;
   std::unique_ptr<BaseAST> block;
+  struct FuncParam {
+    std::string type;
+    std::string ident;
+  };
+  typedef std::vector<std::unique_ptr<FuncParam>> FuncParams;
+  std::unique_ptr<FuncParams> func_params;
 
 };
 // BLock = { BlockItem* }
@@ -384,6 +392,29 @@ class UnaryExpAST : public BaseAST {
     std::variant<std::unique_ptr<BaseAST>
                 , UnaryExp> mem;
     
+};
+
+class FuncCallAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    visitor->Visit(this);
+  }
+  
+  void Dump() const override {
+    std::cout << "FuncCallAST { ";
+    std::cout << ident;
+    std::cout << ", ";
+    // for (auto& param : *params) {
+    //   std::cout << param;
+    // }
+    std::cout << " }";
+  }
+  
+
+  typedef std::unique_ptr<BaseAST> param;
+  typedef std::vector<param> Params;
+  std::string ident;
+  std::unique_ptr<Params> params;
 };
 
 // Exp = LOrExp

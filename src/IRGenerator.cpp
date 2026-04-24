@@ -12,10 +12,13 @@ IRgenerator::~IRgenerator() {}
 
 void IRgenerator::Visit(CompUnitAST* ast) {
   LOG("CompUnitAST");
-  current_func = std::make_unique<Function>();
-  ast->func_def->Accept(this);
-  // 当current_func构造完成后，将其加入到program中
-  program->functions.push_back(std::move(current_func));
+  // 遍历所有函数定义
+  for (auto& func_def : ast->func_defs) {
+    current_func = std::make_unique<Function>();
+    func_def->Accept(this);
+    // 当current_func构造完成后，将其加入到program中
+    program->functions.push_back(std::move(current_func));
+  }
 }
 
 void IRgenerator::Visit(FuncTypeAST* ast) {
@@ -660,7 +663,13 @@ void IRgenerator::Visit(VarDeclAST* ast) {
 
 void IRgenerator::Visit(NullAST* ast) {
   // LOG("NullAST");
+  // 不生成任何东西，空操作
 }
+
+void IRgenerator::Visit(FuncCallAST* ast) {
+  LOG("FuncCallAST");
+}
+
 
 void IRgenerator::OutputIR(std::string output) {
   IROutputer out(output, std::move(symbol_table));

@@ -34,6 +34,7 @@ class ConstDefAST;
 class LValAST;
 class VarDefAST;
 class VarDeclAST;
+class FuncCallAST;
 
 
 
@@ -69,6 +70,7 @@ class ASTVisitor : public Visitor {
     virtual void Visit(VarDefAST* ast) = 0;
     virtual void Visit(VarDeclAST* ast) = 0;
     virtual void Visit(NullAST* ast) = 0;
+    virtual void Visit(FuncCallAST* ast) = 0;
 };
 
 class Value;
