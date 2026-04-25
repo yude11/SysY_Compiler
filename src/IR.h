@@ -154,6 +154,22 @@ class Value_RETURN : public Value {
     std::shared_ptr<Value> val;
 };
 
+class Value_Call : public Value {
+  public:
+    Value_Call(std::string name, std::shared_ptr<Value> return_val, std::vector<std::shared_ptr<Value>> args)
+     : Value(name, Value_Type::KOOPA_RVT_CALL), return_val(return_val), args(args) {}
+
+    void Accept(IRVisitor* visitor) override {
+      visitor->Visit(this);
+    }
+    // 函数名
+    std::string ident;
+    // 函数返回值
+    std::shared_ptr<Value> return_val;
+    // 函数参数
+    std::vector<std::shared_ptr<Value>> args;
+};
+
 // 基本块
 class BasicBlock {
   public:

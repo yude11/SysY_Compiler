@@ -282,5 +282,8 @@ void AssemblyGenerator::Visit(Value_BRANCH *branch) {
   fs << " j     " << branch->else_name << std::endl;
 }
 
-
-
+void AssemblyGenerator::Visit(Value_Call *call) {
+  LOG("Value_Call");
+  // 访问调用指令 call %0, @func
+  // fs << " jal " << call->func->name << std::endl;
+}

@@ -82,6 +82,7 @@ class IROutputer : public IRVisitor {
     void Visit(Value_BINARY* binary) override;
     void Visit(Value_ALLOC* alloc) override;
     void Visit(Value_LOAD* load) override;
+    void Visit(Value_Call* call) override;
     void Visit(Value_STORE* store) override;
     void Visit(Value_BRANCH* branch) override;
     void Visit(Value_JUMP* jump) override;

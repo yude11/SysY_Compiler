@@ -16,6 +16,10 @@ void IRgenerator::Visit(CompUnitAST* ast) {
   for (auto& func_def : ast->func_defs) {
     current_func = std::make_unique<Function>();
     func_def->Accept(this);
+    // 将函数加入到symbol_table中，return_val作为他的值
+    // auto return_val = current_value_stack.top();
+    // current_value_stack.pop();
+    // symbol_table->Insert(current_func->name, return_val, true, false, current_func->type.name);
     // 当current_func构造完成后，将其加入到program中
     program->functions.push_back(std::move(current_func));
   }
@@ -34,7 +38,21 @@ void IRgenerator::Visit(FuncDefAST* ast) {
   ast->func_type->Accept(this);
   current_func->name = ast->ident;
   // 访问block中的语句，构造current_block
-  ast->block->Accept(this);
+  auto block = static_cast<BlockAST*>(ast->block.get());
+  symbol_table->Push();
+  for (auto& param : *ast->func_params) {
+    auto param_val = std::make_shared<Value_ALLOC>(param->ident, param->type);
+    auto val = std::make_shared<Value_ALLOC>(param->ident, param->type);
+    current_block->stmts.push_back(val);
+    current_block->stmts.push_back(std::make_shared<Value_STORE>(param_val, val));
+    symbol_table->Insert(param->ident, val, false, false, param->type);
+  }
+  for (auto& item : *(block->block_items)) {
+    item->Accept(this);
+    if (current_block->IsTerminated()) {
+      break;
+    }
+  }
   // 当current_block构造完成后，将其加入到current_func中
   current_func->blocks.push_back(std::move(current_block));
 }
@@ -79,7 +97,7 @@ void IRgenerator::Visit(StmtAST* ast) {
       }
       // 2. 判断lval是否为常量
       auto symbol = symbol_table->FindSymbol(lval->ident);
-      if (symbol.is_const) {
+      if (symbol->is_const) {
         std::cerr << "error : " << lval->ident << " is const" << std::endl;
         assert(0);
       }
@@ -248,7 +266,7 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     //   @result = alloc i32
     //   store 1, @result
     auto alloc = std::make_shared<Value_ALLOC>("@result", "i32");
-    symbol_table->Insert(alloc->name, alloc, false, "i32");
+    symbol_table->Insert(alloc->name, alloc, false, false, "i32");
     auto assign = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(1), alloc);
     current_block->stmts.push_back(alloc);
     current_block->stmts.push_back(assign);
@@ -310,7 +328,7 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     //   @result = alloc i32
     //   store 0, @result
     auto alloc = std::make_shared<Value_ALLOC>("@result", "i32");
-    symbol_table->Insert(alloc->name, alloc, false, "i32");
+    symbol_table->Insert(alloc->name, alloc, false, false, "i32");
     auto assign = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(0), alloc);
     current_block->stmts.push_back(alloc);
     current_block->stmts.push_back(assign);
@@ -602,7 +620,7 @@ void IRgenerator::Visit(ConstDeclAST* ast) {
   for (auto& item : *(ast->const_def_list)) {
     auto const_def = static_cast<ConstDefAST*>(item.get());
     const_def->const_exp->Accept(this);
-    symbol_table->Insert(const_def->ident, current_value_stack.top(), true, ast->elem_type);
+    symbol_table->Insert(const_def->ident, current_value_stack.top(), false, true, ast->elem_type);
     current_value_stack.pop();
   }
 }
@@ -615,7 +633,7 @@ void IRgenerator::Visit(ConstDefAST* ast) {
 void IRgenerator::Visit(LValAST* ast) {
   LOG("LValAST");
   auto val = symbol_table->FindValue(ast->ident);
-  if (!symbol_table->FindSymbol(ast->ident).is_const) {
+  if (!symbol_table->FindSymbol(ast->ident)->is_const) {
     /// 载入变量，生成load指令
     auto load_val = std::make_shared<Value_LOAD>("%" + std::to_string(count++), val);
     current_block->stmts.push_back(load_val);
@@ -656,7 +674,7 @@ void IRgenerator::Visit(VarDeclAST* ast) {
       current_value_stack.pop();
       // 在符号表中插入变量
     }
-    symbol_table->Insert(var_def->ident, alloc, false, ast->elem_type);
+    symbol_table->Insert(var_def->ident, alloc, false, false, ast->elem_type);
   }
 
 }
@@ -668,6 +686,16 @@ void IRgenerator::Visit(NullAST* ast) {
 
 void IRgenerator::Visit(FuncCallAST* ast) {
   LOG("FuncCallAST");
+  std::vector<std::shared_ptr<Value>> args;
+  for (auto& param : *ast->params) {
+    param->Accept(this);
+    auto param_val = current_value_stack.top();
+    current_value_stack.pop();
+    args.push_back(param_val);
+  }
+  auto return_val = symbol_table->FindValue(ast->ident);
+  current_block->stmts.push_back(std::make_shared<Value_Call>("call", return_val, args));
+  current_value_stack.push(return_val);
 }
 
 
@@ -799,3 +827,12 @@ void IROutputer::Visit(Value_BRANCH* branch) {
   }
   fs << "  br " << cond_name << ", " << "%" + branch->then_name << ", " << "%" + branch->else_name << std::endl;
 }
+
+void IROutputer::Visit(Value_Call* call) {
+  fs << " call " << call->ident << "(";
+  for (auto& arg : call->args) {
+    fs << arg->name << ", ";
+  }
+  fs << ")" << std::endl;
+}
+  
