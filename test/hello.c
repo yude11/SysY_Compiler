@@ -1,10 +1,10 @@
-// int half(int x) {
-//   return x;
-// }
+int half(int x) {
+  return x / 2;
+}
 
-// void f() {}
+void f() {}
 
-int y(int x) {
-  int y = 3;
-  return x + y;
+int main() {
+  f();
+  return half(10);
 }

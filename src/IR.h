@@ -87,6 +87,15 @@ class Value_INTEGER : public Value {
     int val;
 };
 
+// class Value_VOID : public Value {
+//   public:
+//     Value_VOID() : Value("void", Value_Type::KOOPA_RVT_VOID) {}
+
+//     void Accept(IRVisitor* visitor) override {
+//       visitor->Visit(this);
+//     }
+// };
+
 // 条件跳转指令
 class Value_BRANCH : public Value {
   public:
@@ -115,14 +124,15 @@ class Value_JUMP : public Value {
     std::string dst_name;
 };
 
-class Value_REF : public Value {
+class Value_FUNC_ARG_REF : public Value {
  public:
-  Value_REF(std::string name) 
-    : Value(name, Value_Type::KOOPA_RVT_REF) {}  // 类型可以是 INTEGER 或通用类型
+  Value_FUNC_ARG_REF(std::string name, std::string elem_type) 
+    : Value(name, Value_Type::KOOPA_RVT_FUNC_ARG_REF), elem_type(elem_type){}
 
   void Accept(IRVisitor* visitor) override {
     visitor->Visit(this);
   }
+  std::string elem_type;  // "i32", 等
 };
 
 // 二元操作语句
@@ -156,16 +166,14 @@ class Value_RETURN : public Value {
 
 class Value_Call : public Value {
   public:
-    Value_Call(std::string name, std::shared_ptr<Value> return_val, std::vector<std::shared_ptr<Value>> args)
-     : Value(name, Value_Type::KOOPA_RVT_CALL), return_val(return_val), args(args) {}
+    Value_Call(std::string name, std::string ident, std::vector<std::shared_ptr<Value>> args)
+     : Value(name, Value_Type::KOOPA_RVT_CALL), ident(ident), args(args) {}
 
     void Accept(IRVisitor* visitor) override {
       visitor->Visit(this);
     }
     // 函数名
     std::string ident;
-    // 函数返回值
-    std::shared_ptr<Value> return_val;
     // 函数参数
     std::vector<std::shared_ptr<Value>> args;
 };
@@ -208,7 +216,8 @@ class Function {
     Type type;
     std::string name;
     // 函数参数 ...
-    std::vector<std::unique_ptr<Type>> params;
+
+    std::vector<std::shared_ptr<Value>> params;
     std::vector<std::unique_ptr<BasicBlock>> blocks;
 };
 

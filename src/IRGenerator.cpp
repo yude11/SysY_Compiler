@@ -6,7 +6,7 @@
 
 
 
-IRgenerator::IRgenerator() : program(std::make_unique<Program>()), symbol_table(std::make_unique<SymbolTable>()) {}
+IRgenerator::IRgenerator() : program(std::make_unique<Program>()), symbol_table(std::make_unique<SymbolTable>()), name_manager(std::make_unique<IRNameManager>()) {}
 
 IRgenerator::~IRgenerator() {}
 
@@ -15,12 +15,12 @@ void IRgenerator::Visit(CompUnitAST* ast) {
   // 遍历所有函数定义
   for (auto& func_def : ast->func_defs) {
     current_func = std::make_unique<Function>();
+    auto def = static_cast<FuncDefAST*>(func_def.get());
+    auto func_type = static_cast<FuncTypeAST*>(def->func_type.get());
+    // 将函数加入到符号表中
+    symbol_table->Insert(def->ident, nullptr, true, false, func_type->type);
+    // 处理函数
     func_def->Accept(this);
-    // 将函数加入到symbol_table中，return_val作为他的值
-    // auto return_val = current_value_stack.top();
-    // current_value_stack.pop();
-    // symbol_table->Insert(current_func->name, return_val, true, false, current_func->type.name);
-    // 当current_func构造完成后，将其加入到program中
     program->functions.push_back(std::move(current_func));
   }
 }
@@ -40,17 +40,31 @@ void IRgenerator::Visit(FuncDefAST* ast) {
   // 访问block中的语句，构造current_block
   auto block = static_cast<BlockAST*>(ast->block.get());
   symbol_table->Push();
-  for (auto& param : *ast->func_params) {
-    auto param_val = std::make_shared<Value_ALLOC>(param->ident, param->type);
-    auto val = std::make_shared<Value_ALLOC>(param->ident, param->type);
-    current_block->stmts.push_back(val);
-    current_block->stmts.push_back(std::make_shared<Value_STORE>(param_val, val));
-    symbol_table->Insert(param->ident, val, false, false, param->type);
+  if (ast->func_params) {
+    for (auto& param : *ast->func_params) {
+      // 将函数参数加入符号表
+      auto param_ref = std::make_shared<Value_FUNC_ARG_REF>(name_manager->AllocateNamed(param->ident), param->type);
+      auto val = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint(param->ident), param->type);
+      current_block->stmts.push_back(val);
+      current_block->stmts.push_back(std::make_shared<Value_STORE>(param_ref, val));
+      symbol_table->Insert(param->ident, val, false, false, param->type);
+      // 将参数加入到current_func的参数列表中
+      current_func->params.push_back(param_ref);
+    }
   }
   for (auto& item : *(block->block_items)) {
     item->Accept(this);
     if (current_block->IsTerminated()) {
       break;
+    }
+  }
+  if (!current_block->IsTerminated()) {
+    // 如果函数没有以return结尾，添加一个默认的return 0
+    if (current_func->type.name == "void") {
+      current_block->stmts.push_back(std::make_shared<Value_RETURN>(nullptr));
+    } else {
+      std::cerr << "warning: Non-void function does not end with return, adding default return 0" << std::endl;
+      current_block->stmts.push_back(std::make_shared<Value_RETURN>(std::make_shared<Value_INTEGER>(0)));
     }
   }
   // 当current_block构造完成后，将其加入到current_func中
@@ -128,10 +142,10 @@ void IRgenerator::Visit(StmtAST* ast) {
       current_value_stack.pop();
       
       // Step 2: 生成基本块名称
-      std::string then_name = "then" + std::to_string(if_count++);
-      std::string end_name = "end" + std::to_string(end_count++);
+      std::string then_name = name_manager->AllocateLabel("then");
+      std::string end_name = name_manager->AllocateLabel("end");
       std::string else_name = if_else_stmt.else_stmt != nullptr 
-                              ? "else" + std::to_string(else_count++) 
+                              ? name_manager->AllocateLabel("else")
                               : end_name;
       
       // Step 3: 生成分支指令
@@ -169,10 +183,10 @@ void IRgenerator::Visit(StmtAST* ast) {
       auto& while_stmt = std::get<StmtAST::While_STMT>(ast->stmt);
       
       // 1. 生成基本块信息
-      while_entry_stack.push(while_count);
-      std::string while_entry = "while_entry" + std::to_string(while_count);
-      std::string then_name = "while_body" + std::to_string(while_count);
-      std::string end_name = "while_end" + std::to_string(while_count++);
+      while_entry_stack.push(name_manager->GetLabelCount("while_entry"));
+      std::string while_entry = name_manager->AllocateLabel("while_entry");
+      std::string then_name = name_manager->AllocateLabel("while_body");
+      std::string end_name = name_manager->AllocateLabel("while_end");
       
       // 2. 生成jump指令到while_entry
       current_block->stmts.push_back(std::make_shared<Value_JUMP>(while_entry));
@@ -200,17 +214,26 @@ void IRgenerator::Visit(StmtAST* ast) {
       break;
     }
     case Stmt_Type::AST_STMT_BREAK: {
-      std::string end_name = "while_end" + std::to_string(while_entry_stack.top());
+      std::string end_name = "while_end_" + std::to_string(while_entry_stack.top());
       current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
       // 标记当前块已终止
       current_block->Terminate();
       break;
     }
     case Stmt_Type::AST_STMT_CONTINUE: {
-      std::string while_entry_name = "while_entry" + std::to_string(while_entry_stack.top());
+      std::string while_entry_name = "while_entry_" + std::to_string(while_entry_stack.top());
       current_block->stmts.push_back(std::make_shared<Value_JUMP>(while_entry_name));
       // 标记当前块已终止
       current_block->Terminate();
+      break;
+    }
+    case Stmt_Type::AST_STMT_EXP: {
+      auto& exp_stmt = std::get<StmtAST::Exp_STMT>(ast->stmt);
+      exp_stmt->Accept(this);
+      // 表达式结果不需要使用，从栈中弹出扔掉
+      if (!current_value_stack.empty()) {
+        current_value_stack.pop();
+      }
       break;
     }
     default:
@@ -265,7 +288,7 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     // Step 1: 分配临时变量，默认值为 1 (true)
     //   @result = alloc i32
     //   store 1, @result
-    auto alloc = std::make_shared<Value_ALLOC>("@result", "i32");
+    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
     symbol_table->Insert(alloc->name, alloc, false, false, "i32");
     auto assign = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(1), alloc);
     current_block->stmts.push_back(alloc);
@@ -282,9 +305,9 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     // Step 3: 生成分支指令
     //   %cond = eq lhs, 0
     //   br %cond, %then, %end
-    auto then_name = "then" + std::to_string(if_count++);
-    auto end_name = "end" + std::to_string(end_count++);
-    auto eq = std::make_shared<Value_BINARY>("%"+std::to_string(count++), lhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_EQ);
+    auto then_name = name_manager->AllocateLabel("then");
+    auto end_name = name_manager->AllocateLabel("end");
+    auto eq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), lhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_EQ);
     current_block->stmts.push_back(eq);
     auto if_branch = std::make_shared<Value_BRANCH>(eq, then_name, end_name);
     current_block->stmts.push_back(if_branch);
@@ -295,7 +318,7 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     //   store %rhs_bool, @result
     //   jump %end
     current_block = std::make_unique<BasicBlock>(then_name);
-    auto neq = std::make_shared<Value_BINARY>("%"+std::to_string(count++), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
+    auto neq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
     current_block->stmts.push_back(neq);
     current_block->stmts.push_back(std::make_shared<Value_STORE>(neq, alloc));
     current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
@@ -304,7 +327,7 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     // Step 5: 生成 end 基本块，加载结果并压栈
     //   %result = load @result
     current_block = std::make_unique<BasicBlock>(end_name);
-    auto load = std::make_shared<Value_LOAD>("%"+std::to_string(count++), alloc);
+    auto load = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), alloc);
     current_block->stmts.push_back(load);
     current_value_stack.push(load);
   }
@@ -327,7 +350,7 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     // Step 1: 分配临时变量，默认值为 0 (false)
     //   @result = alloc i32
     //   store 0, @result
-    auto alloc = std::make_shared<Value_ALLOC>("@result", "i32");
+    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
     symbol_table->Insert(alloc->name, alloc, false, false, "i32");
     auto assign = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(0), alloc);
     current_block->stmts.push_back(alloc);
@@ -344,9 +367,9 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     // Step 3: 生成分支指令
     //   %cond = ne lhs, 0    (或 eq lhs, 1)
     //   br %cond, %then, %end
-    auto then_name = "then" + std::to_string(if_count++);
-    auto end_name = "end" + std::to_string(end_count++);
-    auto eq = std::make_shared<Value_BINARY>("%"+std::to_string(count++), lhs_val, std::make_shared<Value_INTEGER>(1), Binary_Op_Type::KOOPA_RBO_EQ);
+    auto then_name = name_manager->AllocateLabel("then");
+    auto end_name = name_manager->AllocateLabel("end");
+    auto eq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), lhs_val, std::make_shared<Value_INTEGER>(1), Binary_Op_Type::KOOPA_RBO_EQ);
     current_block->stmts.push_back(eq);
     auto if_branch = std::make_shared<Value_BRANCH>(eq, then_name, end_name);
     current_block->stmts.push_back(if_branch);
@@ -357,7 +380,7 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     //   store %rhs_bool, @result
     //   jump %end
     current_block = std::make_unique<BasicBlock>(then_name);
-    auto neq = std::make_shared<Value_BINARY>("%"+std::to_string(count++), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
+    auto neq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
     current_block->stmts.push_back(neq);
     current_block->stmts.push_back(std::make_shared<Value_STORE>(neq, alloc));
     current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
@@ -366,7 +389,7 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     // Step 5: 生成 end 基本块，加载结果并压栈
     //   %result = load @result
     current_block = std::make_unique<BasicBlock>(end_name);
-    auto load = std::make_shared<Value_LOAD>("%"+std::to_string(count++), alloc);
+    auto load = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), alloc);
     current_block->stmts.push_back(load);
     current_value_stack.push(load);
   }
@@ -463,7 +486,7 @@ void IRgenerator::Visit(UnaryOpAST* ast) {
   }
 
   // 如果右操作数不是常量，翻译为指令
-  std::string name = "%" + std::to_string(count++);
+  std::string name = name_manager->AllocateTemp();
   switch (ast->op) {
     case Op_Type::AST_UNARY_OP_NEG: {
       // 将val实例加入到block
@@ -505,7 +528,7 @@ void IRgenerator::Visit(BinaryOpAST* ast) {
   current_value_stack.pop();
   std::shared_ptr<Value> lhs = current_value_stack.top();
   current_value_stack.pop();
-  std::string name = "%" + std::to_string(count++);
+  std::string name = name_manager->AllocateTemp();
   Binary_Op_Type op_type;
   // 如果左操作数和右操作数都是常量，直接计算结果
   if (lhs->type == Value_Type::KOOPA_RVT_INTEGER && rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
@@ -601,6 +624,7 @@ void IRgenerator::Visit(BinaryOpAST* ast) {
 
 void IRgenerator::Visit(LGBinaryOpAST* ast) {
   LOG("LGBinaryOpAST");
+  assert(0);
   // 已经在上一级节点实现, NEVER REACH HERE
 }
 
@@ -627,6 +651,7 @@ void IRgenerator::Visit(ConstDeclAST* ast) {
 
 void IRgenerator::Visit(ConstDefAST* ast) {
   LOG("ConstDefAST");
+  assert(0);
   // 上一层直接处理了，所以应该不会到达这里
 }
 
@@ -635,7 +660,7 @@ void IRgenerator::Visit(LValAST* ast) {
   auto val = symbol_table->FindValue(ast->ident);
   if (!symbol_table->FindSymbol(ast->ident)->is_const) {
     /// 载入变量，生成load指令
-    auto load_val = std::make_shared<Value_LOAD>("%" + std::to_string(count++), val);
+    auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), val);
     current_block->stmts.push_back(load_val);
     /// 压入load的结果
     current_value_stack.push(load_val);
@@ -663,7 +688,7 @@ void IRgenerator::Visit(VarDeclAST* ast) {
   for (auto& item : *(ast->var_def_list)) {
     auto var_def = static_cast<VarDefAST*>(item.get());
     // 生成alloc指令
-    auto alloc = std::make_shared<Value_ALLOC>("@" + var_def->ident, ast->elem_type);
+    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type);
     current_block->stmts.push_back(alloc);
     if (var_def->type == 1) {
       // 初始化
@@ -687,15 +712,31 @@ void IRgenerator::Visit(NullAST* ast) {
 void IRgenerator::Visit(FuncCallAST* ast) {
   LOG("FuncCallAST");
   std::vector<std::shared_ptr<Value>> args;
-  for (auto& param : *ast->params) {
-    param->Accept(this);
-    auto param_val = current_value_stack.top();
-    current_value_stack.pop();
-    args.push_back(param_val);
+  // 1. 解析出所有参数加入到args中
+  if (ast->params) {
+    for (auto& param : *ast->params) {
+      // 访问参数表达式，计算参数值并压栈
+      param->Accept(this);
+      auto param_val = current_value_stack.top();
+      current_value_stack.pop();
+      args.push_back(param_val);
+    }
   }
-  auto return_val = symbol_table->FindValue(ast->ident);
-  current_block->stmts.push_back(std::make_shared<Value_Call>("call", return_val, args));
-  current_value_stack.push(return_val);
+  // 2. 生成call指令
+  // 查看函数的返回值类型，如果是void则不需要处理返回值
+  auto func_symbol = symbol_table->FindSymbol(ast->ident);
+  if (func_symbol->type != "void") {
+    // 有返回值：分配一个临时符号作为返回值名字
+    auto ret_name = name_manager->AllocateTemp();
+    auto call_val = std::make_shared<Value_Call>(ret_name, "@" + ast->ident, args);
+    current_value_stack.push(call_val);  // 把 call 指令本身压栈
+    current_block->stmts.push_back(call_val);
+  } else {
+    // void 函数：name 为空
+    LOG("void function call");
+    auto call_val = std::make_shared<Value_Call>("null", "@" + ast->ident, args);
+    current_block->stmts.push_back(call_val);
+  }
 }
 
 
@@ -715,9 +756,11 @@ void IROutputer::Visit(Value_INTEGER* integer) {
 }
 
 void IROutputer::Visit(Value_RETURN* return_val) {
-    fs << "  ret " << return_val->val->name;
-    // return_val->val->Accept(this); 
-    fs << std::endl;
+    if (return_val->val == nullptr) {
+        fs << "  ret" << std::endl;
+        return;
+    }
+    fs << "  ret " << return_val->val->name << std::endl;
 }
 
 void IROutputer::Visit(Value_BINARY* binary) {
@@ -768,7 +811,7 @@ void IROutputer::Visit(Value_BINARY* binary) {
   fs << binary->rhs->name << std::endl;
 }
 
-void IROutputer::Visit(Value_REF* ref) {
+void IROutputer::Visit(Value_FUNC_ARG_REF* ref) {
   fs << ref->name;
 }
 
@@ -783,7 +826,19 @@ void IROutputer::Visit(BasicBlock* block) {
 }
 
 void IROutputer::Visit(Function* func) {
-  fs << "fun @" << func->name << "(): " << func->type.name << " {" << std::endl;
+  fs << "fun @" << func->name << "(";
+  for (size_t i = 0; i < func->params.size(); ++i) {
+    auto param = static_cast<Value_FUNC_ARG_REF*>(func->params[i].get());
+    fs << param->name << ": " << param->elem_type;
+    if (i != func->params.size() - 1) {
+      fs << ", ";
+    }
+  }
+  fs << ")";
+  if (func->type.name != "void") {
+    fs << ": " << func->type.name;
+  }
+  fs << " {" << std::endl;
   for (auto& block : func->blocks) {
     block->Accept(this);
   }
@@ -793,25 +848,22 @@ void IROutputer::Visit(Function* func) {
 void IROutputer::Visit(Program* program) {
   for (auto& func : program->functions) {
     func->Accept(this);
+    fs << std::endl;
   }
 }
 
 void IROutputer::Visit(Value_ALLOC* alloc) {
-  fs << "  " << symbol_table->GetName(alloc) << " = alloc " << alloc->elem_type << std::endl;
+  fs << "  " << alloc->name << " = alloc " << alloc->elem_type << std::endl;
 }
 
 void IROutputer::Visit(Value_LOAD* load) {
-  fs << "  " << load->name << " = load " << symbol_table->GetName(load->src.get()) << std::endl;
+  fs << "  " << load->name << " = load " << load->src->name << std::endl;
 }
 
 void IROutputer::Visit(Value_STORE* store) {
   std::string value_name;
-  if (store->value->type == Value_Type::KOOPA_RVT_ALLOC) {
-    value_name = symbol_table->GetName(store->value.get());
-  } else {
-    value_name = store->value->name;  // 对于INTEGER等直接使用name
-  }
-  fs << "  store " << value_name << ", " << symbol_table->GetName(store->dst.get()) << std::endl;
+  value_name = store->value->name;
+  fs << "  store " << value_name << ", " << store->dst->name << std::endl;
 }
 
 void IROutputer::Visit(Value_JUMP* jump) {
@@ -821,7 +873,7 @@ void IROutputer::Visit(Value_JUMP* jump) {
 void IROutputer::Visit(Value_BRANCH* branch) {
   std::string cond_name;
   if (branch->cond->type == Value_Type::KOOPA_RVT_ALLOC) {
-    cond_name = symbol_table->GetName(branch->cond.get());
+    cond_name = branch->cond->name;
   } else {
     cond_name = branch->cond->name;  // 对于INTEGER等直接使用name
   }
@@ -829,9 +881,18 @@ void IROutputer::Visit(Value_BRANCH* branch) {
 }
 
 void IROutputer::Visit(Value_Call* call) {
+  if (call->name != "null") {
+    fs << "  " << call->name << " =";
+  } else {
+    fs << " ";
+  }
   fs << " call " << call->ident << "(";
-  for (auto& arg : call->args) {
-    fs << arg->name << ", ";
+  for (size_t i = 0; i < call->args.size(); ++i) {
+    auto arg = call->args[i];
+    fs << arg->name;
+    if (i != call->args.size() - 1) {
+      fs << ", ";
+    }
   }
   fs << ")" << std::endl;
 }

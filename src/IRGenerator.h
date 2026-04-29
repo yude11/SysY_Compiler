@@ -7,6 +7,7 @@
 #include "IR.h"
 #include "AST.h"
 #include "SymbolTable.h"
+#include "IRNameManager.h"
 
 
 // 内存IR生成器
@@ -52,19 +53,14 @@ class IRgenerator : public ASTVisitor {
     std::unique_ptr<BasicBlock> current_block;
     std::stack<std::shared_ptr<Value>> current_value_stack;
 
-    // 表示临时变量的编号
-    int count = 0;
-    // if else 的编号
-    int if_count = 0;
-    int else_count = 0; 
-    int end_count = 0;
-    // while 的编号
-    int while_count = 0;
     // while 栈用于支持break和continue指令
     std::stack<int> while_entry_stack;
 
     // 符号表
     std::unique_ptr<SymbolTable> symbol_table;
+
+    // IR命名管理器
+    std::unique_ptr<IRNameManager> name_manager;
 };
 
 // 输出文字形式的IR到文件中
@@ -76,7 +72,7 @@ class IROutputer : public IRVisitor {
     
     ~IROutputer();
     // 对IR节点进行访问函数
-    void Visit(Value_REF* ref) override;
+    void Visit(Value_FUNC_ARG_REF* ref) override;
     void Visit(Value_RETURN* return_val) override;
     void Visit(Value_INTEGER* integer) override;
     void Visit(Value_BINARY* binary) override;

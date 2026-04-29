@@ -264,6 +264,11 @@ class StmtAST : public BaseAST {
         std::cout << "ContinueAST { }";
         break;
       }
+      case Stmt_Type::AST_STMT_EXP: {
+        auto& exp_stmt = std::get<Exp_STMT>(stmt);
+        exp_stmt->Dump();
+        break;
+      }
       default:
         break;
     }
@@ -277,6 +282,7 @@ class StmtAST : public BaseAST {
     std::unique_ptr<BaseAST> exp;
   };
   typedef std::unique_ptr<BaseAST> Block_STMT;
+  typedef std::unique_ptr<BaseAST> Exp_STMT;
   struct IfElse_STMT {
     std::unique_ptr<BaseAST> exp;
     std::unique_ptr<BaseAST> if_stmt;

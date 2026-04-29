@@ -3,7 +3,3 @@
 build/
 result/
 test/
-
-build.sh
-run.sh
-docker_start.sh

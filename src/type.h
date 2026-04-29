@@ -37,8 +37,8 @@ typedef enum {
   KOOPA_RVT_CALL,
   /// Function return.
   KOOPA_RVT_RETURN,
-  /// Reference(new define).
-  KOOPA_RVT_REF,
+  /// Void value.
+  KOOPA_RVT_VOID,
 } Value_Type;
 
 // Koopa中二元操作符的类型
@@ -137,6 +137,8 @@ typedef enum {
     AST_STMT_BREAK,
     /// Continue statement.
     AST_STMT_CONTINUE,
+    /// Expression statement.
+    AST_STMT_EXP,
 } Stmt_Type;
 
 //变量，函数返回值的类型 

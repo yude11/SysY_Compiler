@@ -247,7 +247,10 @@ Stmt
     $$ = ast;
   }
   | Exp ';' {
-    $$ = nullptr;
+    auto ast = new StmtAST();
+    ast->type = Stmt_Type::AST_STMT_EXP;
+    ast->stmt = std::unique_ptr<BaseAST>($1);
+    $$ = ast;
   }
   | IfElse {
     $$ = $1;

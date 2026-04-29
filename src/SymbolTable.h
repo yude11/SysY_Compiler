@@ -24,7 +24,7 @@ class Symbol {
       std::vector<std::string> args_type;
 };
 
-// 局部作用域
+// 作用域
 class Scope {
   public:
     Scope() = default;
@@ -68,8 +68,6 @@ class Scope {
 class SymbolTable {
   public:
     SymbolTable() {
-      // global_scope = std::make_unique<Scope>();
-      // scopes.push_back(std::make_unique<Scope>());
       Push();
     }
     ~SymbolTable() = default;
@@ -84,10 +82,6 @@ class SymbolTable {
     void Pop() {
       scopes.pop_back();
       current_scope_level--;
-      if (scopes.empty()) {
-        value_name_map.clear();
-        name_count.clear();
-      }
     }
 
     std::shared_ptr<Value> FindValue(const std::string& name) {
@@ -109,16 +103,10 @@ class SymbolTable {
       return nullptr;
     }
 
-    // void InsertGlobal(const std::string& name, const std::shared_ptr<Value>& value, 
-    //                             bool is_function, bool is_const, std::string type) {
-    //   global_scope->Insert(name, value, is_function, is_const, type);
-    // }
-
     // 插入符号到当前作用域
     void Insert(const std::string& name, const std::shared_ptr<Value>& value, 
                                 bool is_function, bool is_const, std::string type) {
       scopes[current_scope_level]->Insert(name, value, is_function, is_const, type);
-      AllocateName(value.get());
     }
 
     // 删除当前作用域中该符号
@@ -148,26 +136,7 @@ class SymbolTable {
       }
     }
 
-    // 为Value分配名称
-    std::string AllocateName(Value* value) {
-      if (value_name_map.find(value) != value_name_map.end()) {
-        return value_name_map[value];
-      }
-      std::string name = value->name + std::to_string(name_count[value->name]);
-      name_count[value->name]++;
-      value_name_map[value] = name;
-      return name;
-    }
-
-    std::string GetName(Value* value) {
-      return value_name_map[value];
-    }
-
-    // 全局作用域
-    // std::unique_ptr<Scope> global_scope;
-    // 局部作用域栈
+    // 作用域栈
     std::vector<std::unique_ptr<Scope>> scopes;
     int current_scope_level = -1;
-    std::unordered_map<Value*, std::string> value_name_map;
-    std::unordered_map<std::string, int> name_count;
 };

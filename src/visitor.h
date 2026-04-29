@@ -82,7 +82,7 @@ class Value_LOAD;
 class Value_STORE;
 class Value_BRANCH;
 class Value_JUMP;
-class Value_REF;
+class Value_FUNC_ARG_REF;
 class Value_Call;
 class BasicBlock;
 class Function;
@@ -97,7 +97,7 @@ class IRVisitor : public Visitor {
     virtual void Visit(Value_BRANCH* branch) = 0;
     virtual void Visit(Value_JUMP* jump) = 0;
     virtual void Visit(Value_Call* call) = 0;
-    virtual void Visit(Value_REF* ref) = 0;
+    virtual void Visit(Value_FUNC_ARG_REF* ref) = 0;
     virtual void Visit(Value_ALLOC* alloc) = 0;
     virtual void Visit(Value_LOAD* load) = 0;
     virtual void Visit(Value_STORE* store) = 0;

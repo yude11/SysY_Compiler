@@ -3,8 +3,7 @@
 #include "log.h"
 
 
-AssemblyGenerator::AssemblyGenerator(std::string output, std::unique_ptr<SymbolTable> symbol_table) {
-  this->symbol_table = std::move(symbol_table);
+AssemblyGenerator::AssemblyGenerator(std::string output) {
   reg_allocator = std::make_unique<RegAllocator>();
   fs.open(output, std::ios::out);
 }
@@ -18,12 +17,12 @@ void AssemblyGenerator::Visit(Program *program) {
   // 访问所有全局变量
 
   // 访问所有函数
-  fs << " .text" << std::endl;
   for (auto& func : program->functions) {
+    fs << " .text" << std::endl;
     fs << " .global " << func->name << std::endl;
-  }
-  for (auto& func : program->functions) {
     func->Accept(this);
+    fs << std::endl;
+    reg_allocator->Reset();
   } 
 }
 
@@ -31,9 +30,23 @@ void AssemblyGenerator::Visit(Function *func) {
   LOG("Function");
   // 访问函数体基本块
   fs << func->name << ":" << std::endl;
-  reg_allocator->Scan(func);
+  bool has_call = reg_allocator->Scan(func);
   if (reg_allocator->stack_offset != 0) {
     fs << " addi  sp, sp, -" << reg_allocator->stack_offset << std::endl;
+    if (has_call) {
+      fs << " sw    ra, " << (reg_allocator->stack_offset - 4) << "(sp)" << std::endl;
+    }
+    // 将参数存入栈中
+    for (size_t i = 0; i < func->params.size() && i < 8; i++) {
+      auto r = "a" + std::to_string(i);
+      reg_allocator->value_to_reg[func->params[i].get()] = r;
+    }
+    for (size_t i = 8; i < func->params.size(); i++) {
+      auto r = reg_allocator->Alloc(func->params[i].get());
+      fs << " lw    " << r << ", " << "-"<< (i-8)*4 << "(sp)" << std::endl;
+      fs << " sw    " << r << ", " << reg_allocator->GetLoc(func->params[i].get()) << "(sp)" << std::endl;
+    }
+    reg_allocator->Clear();
   }
   for (auto& block : func->blocks) {
     block->Accept(this);
@@ -59,6 +72,13 @@ void AssemblyGenerator::Visit(BasicBlock *block) {
 
 void AssemblyGenerator::Visit(Value_RETURN *return_val) {
   LOG("Value_RETURN");
+  if (reg_allocator->ra_used) {
+    fs << " lw    ra, " << (reg_allocator->stack_offset - 4) << "(sp)" << std::endl;
+  }
+  if (return_val->val == nullptr) {
+    fs << " ret" << std::endl;
+    return;
+  }
   // 访问返回语句
   if (return_val->val->type == Value_Type::KOOPA_RVT_INTEGER) {
     fs << " li    a0, " << return_val->val->name << std::endl;
@@ -198,7 +218,7 @@ void AssemblyGenerator::Visit(Value_BINARY *binary) {
   reg_allocator->Clear();
 }
 
-void AssemblyGenerator::Visit(Value_REF *ref) {
+void AssemblyGenerator::Visit(Value_FUNC_ARG_REF *ref) {
   // 访问引用
   fs << reg_allocator->Lookup(ref);
 }
@@ -285,5 +305,34 @@ void AssemblyGenerator::Visit(Value_BRANCH *branch) {
 void AssemblyGenerator::Visit(Value_Call *call) {
   LOG("Value_Call");
   // 访问调用指令 call %0, @func
-  // fs << " jal " << call->func->name << std::endl;
+  // 1. 存放参数
+  // 当参数编号小于8时，存放到a0-a7寄存器中
+  for (size_t i = 0; i < call->args.size() && i < 8; i++) {
+    auto arg = call->args[i].get();
+    std::string r = "a" + std::to_string(i);
+    if (arg->type == Value_Type::KOOPA_RVT_INTEGER) {
+      fs << " li    " << r << ", " << arg->name << std::endl;
+    } else {
+      auto r = reg_allocator->Alloc(arg);
+      fs << " lw    " << r << ", " << reg_allocator->GetLoc(arg) << "(sp)" << std::endl;
+    }
+  }
+  // 当参数编号大于等于8时，存放到栈中
+  for (int i = 8; i < call->args.size(); i++) {
+    auto arg = call->args[i].get();
+    auto r = reg_allocator->Alloc(arg);
+    if (arg->type == Value_Type::KOOPA_RVT_INTEGER) {
+      fs << " li    " << r << ", " << arg->name << std::endl;
+    } else {
+      fs << " lw    " << r << ", " << reg_allocator->GetLoc(arg) << "(sp)" << std::endl;
+    }
+    fs << " sw    " << r << ", " << (4 * (i - 8)) << "(sp)" << std::endl;
+  }
+  fs << " call " << call->ident.substr(1) << std::endl;
+  reg_allocator->Clear();
+  // 2. 如果有返回值，将返回值存到栈中
+  if (call->name != "null") {
+    fs << " sw    a0, " << reg_allocator->GetLoc(call) << "(sp)" << std::endl;
+  }
+  // fs << " jal " << call->func->name << std::endl;s
 }
