@@ -78,6 +78,7 @@ class Value_RETURN;
 class Value_INTEGER;
 class Value_BINARY;
 class Value_ALLOC;
+class Value_GLOBOL_ALLOC;
 class Value_LOAD;
 class Value_STORE;
 class Value_BRANCH;
@@ -85,6 +86,7 @@ class Value_JUMP;
 class Value_FUNC_ARG_REF;
 class Value_Call;
 class BasicBlock;
+class Function_Decl;
 class Function;
 class Program;
 
@@ -99,9 +101,11 @@ class IRVisitor : public Visitor {
     virtual void Visit(Value_Call* call) = 0;
     virtual void Visit(Value_FUNC_ARG_REF* ref) = 0;
     virtual void Visit(Value_ALLOC* alloc) = 0;
+    virtual void Visit(Value_GLOBOL_ALLOC* glob_alloc) = 0;
     virtual void Visit(Value_LOAD* load) = 0;
     virtual void Visit(Value_STORE* store) = 0;
     virtual void Visit(BasicBlock* block) = 0;
     virtual void Visit(Function* func) = 0;
+    virtual void Visit(Function_Decl* func_decl) = 0;
     virtual void Visit(Program* program) = 0;
 };

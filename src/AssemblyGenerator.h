@@ -21,9 +21,12 @@ public:
   // 值到寄存器的映射
   std::unordered_map<Value*, std::string> value_to_reg_t;
   std::unordered_map<Value*, std::string> value_to_reg_a;
-    // 值到栈偏移的映射
-    std::unordered_map<Value*, int> value_to_loc;
-  std::unordered_map<Value*, int> where_is_value; // 0: 寄存器t, 1: 寄存器a, 2: 栈
+  // 值到栈偏移的映射
+  std::unordered_map<Value*, int> value_to_loc;
+  // 全局变量到标签的映射
+  std::unordered_map<Value*, std::string> global_to_label;
+  std::unordered_map<Value*, int> where_is_value; // 0: 寄存器t, 1: 寄存器a, 2: 栈, 3: 全局变量
+
   // 可用临时寄存器栈
   std::stack<std::string> free_regs;
   // 可用参数寄存器栈
@@ -66,17 +69,23 @@ public:
     }
     if (param_regs.empty()) {
       LOG("No more parameter registers available, spilling to stack");
-      // 溢出到栈
       int offset = param_offset;
       param_offset += 4;
       value_to_loc[arg] = offset;
+      where_is_value[arg] = 2;  // 标记为在栈中
       return std::to_string(offset) + "(sp)";
     } else {
       std::string reg = param_regs.top();
       param_regs.pop();
       value_to_reg_a[arg] = reg;
+      where_is_value[arg] = 1;  // 标记为在寄存器 a 中
       return reg;
     }
+  }
+
+  void AllocGlobal(Value* glob_alloc) {
+    global_to_label[glob_alloc] = glob_alloc->name.substr(1);
+    where_is_value[glob_alloc] = 3;
   }
 
   std::string AllocZero(Value* value) {
@@ -104,6 +113,14 @@ public:
       return it->second;
     }
     assert(0 && "error: value not found in stack");
+    return -1;  // 未找到
+  }
+
+  int GetWhereIsValue(Value* value) {
+    if (where_is_value.find(value) != where_is_value.end()) {
+      return where_is_value[value];
+    }
+    assert(0 && "error: value not found in where_is_value");
     return -1;  // 未找到
   }
 
@@ -137,12 +154,14 @@ public:
           case Value_Type::KOOPA_RVT_LOAD:
           case Value_Type::KOOPA_RVT_BINARY:
           value_to_loc[stmt.get()] = stack_offset;
+          where_is_value[stmt.get()] = 2;  // 标记为在栈中
           stack_offset+=4;
           break;
           case Value_Type::KOOPA_RVT_CALL: {
             auto call = static_cast<Value_Call*>(stmt.get());
             if (call->name != "null") {
               value_to_loc[stmt.get()] = stack_offset;
+              where_is_value[stmt.get()] = 2;  // 标记为在栈中
               stack_offset+=4;
             }
             break;
@@ -170,23 +189,37 @@ public:
     return has_call;
   }
 
-  void Clear() {
-    // 清除所有临时寄存器分配
+  void ClearTempRegs() {
     value_to_reg_t.clear();
+    for (auto it = where_is_value.begin(); it != where_is_value.end(); ) {
+      if (it->second == 0) {
+        it = where_is_value.erase(it);
+      } else {
+        ++it;
+      }
+    }
     while (!free_regs.empty()) {
       free_regs.pop();
     }
-
     for (int i = 6; i >= 0; i--) {
       free_regs.push("t" + std::to_string(i));
     }
   }
 
-  void Reset() {
-    // 清除所有寄存器分配和栈空间分配
-    Clear();
+  void ResetForNewFunction() {
+    ClearTempRegs();
+    value_to_reg_a.clear();
+    value_to_loc.clear();
+    for (auto it = where_is_value.begin(); it != where_is_value.end(); ) {
+      if (it->second != 3) {
+        it = where_is_value.erase(it);
+      } else {
+        ++it;
+      }
+    }
     stack_offset = 0;
     param_offset = 0;
+    ra_used = false;
     while (!param_regs.empty()) {
       param_regs.pop();
     }
@@ -216,6 +249,7 @@ class AssemblyGenerator : public IRVisitor {
     void Visit(Value_INTEGER* integer) override;
     void Visit(Value_BINARY* binary) override;
     void Visit(Value_ALLOC* alloc) override;
+    void Visit(Value_GLOBOL_ALLOC* glob_alloc) override;
     void Visit(Value_LOAD* load) override;
     void Visit(Value_Call* call) override;
     void Visit(Value_STORE* store) override;
@@ -223,12 +257,16 @@ class AssemblyGenerator : public IRVisitor {
     void Visit(Value_BRANCH* branch) override;
     void Visit(Value_FUNC_ARG_REF* ref) override;
     void Visit(BasicBlock* block) override;
+    void Visit(Function_Decl* func_decl) override;
     void Visit(Function* func) override;
     void Visit(Program* program) override;
 
+    // 获取值所在的寄存器，如果不在寄存器中则分配新寄存器并加载，返回寄存器名
+    std::string GetValueReg(Value* val);
+    // 将值加载到指定寄存器（用于函数调用参数等场景）
+    void LoadValueToReg(Value* val, const std::string& target_reg);
+
     std::fstream fs;
     std::unique_ptr<RegAllocator> reg_allocator;
-    // std::unique_ptr<SymbolTable> symbol_table;
-
 };
 

@@ -129,9 +129,11 @@ class SymbolTable {
       for (auto& [name, symbol] : scopes[current_scope_level]->table) {
         if (symbol->is_function) {
           auto func_symbol = std::dynamic_pointer_cast<SymbolFunc>(symbol->value);
-          std::cout << name << " " << symbol->value->name << " " << symbol->is_function << " " << symbol->is_const << " " << symbol->type << " " << func_symbol->args_type.size() << std::endl;
+          std::cout << "func : "<< name << std::endl; 
+          // << " " << symbol->value->name << " " << symbol->is_function << " " << symbol->is_const << " " << symbol->type << " " << func_symbol->args_type.size() << std::endl;
         } else {
-          std::cout << name << " " << symbol->value->name << " " << symbol->is_function << " " << symbol->is_const << " " << symbol->type << std::endl;
+          std::cout << "var : "<< name << std::endl;
+          // << " " << symbol->value->name << " " << symbol->is_function << " " << symbol->is_const << " " << symbol->type << std::endl;
         }
       }
     }

@@ -54,6 +54,7 @@ int main(int argc, const char *argv[]) {
     // 输出koopa IR
     irgen.OutputIR(output);
   } else if (strcmp(mode, "-riscv") == 0) {
+    irgen.OutputIR(output);
     // 输出riscv assembly
     AssemblyGenerator asmgen(output);
     irgen.program->Accept(&asmgen);

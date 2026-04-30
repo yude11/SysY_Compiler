@@ -4,7 +4,17 @@
 #include "type.h"
 #include "log.h"
 
-
+// 库函数列表
+std::vector<std::vector<std::string>> builtin_functions = {
+    {"getint", "i32"},
+    {"getch", "i32"},
+    {"getarray", "i32", "*i32"},
+    {"putint", "void", "i32"},
+    {"putch", "void", "i32"},
+    {"putarray", "void", "i32", "*i32"},
+    {"starttime", "void"},
+    {"stoptime", "void"}
+};
 
 IRgenerator::IRgenerator() : program(std::make_unique<Program>()), symbol_table(std::make_unique<SymbolTable>()), name_manager(std::make_unique<IRNameManager>()) {}
 
@@ -12,16 +22,50 @@ IRgenerator::~IRgenerator() {}
 
 void IRgenerator::Visit(CompUnitAST* ast) {
   LOG("CompUnitAST");
-  // 遍历所有函数定义
-  for (auto& func_def : ast->func_defs) {
-    current_func = std::make_unique<Function>();
-    auto def = static_cast<FuncDefAST*>(func_def.get());
-    auto func_type = static_cast<FuncTypeAST*>(def->func_type.get());
-    // 将函数加入到符号表中
-    symbol_table->Insert(def->ident, nullptr, true, false, func_type->type);
-    // 处理函数
-    func_def->Accept(this);
-    program->functions.push_back(std::move(current_func));
+  // 添加库函数声明
+  for (auto& func : builtin_functions) {
+    auto func_decl = std::make_unique<Function_Decl>();
+    func_decl->name = func[0];
+    func_decl->type.name = func[1];
+    for (size_t i = 2; i < func.size(); i++) {
+      func_decl->params_type.push_back(func[i]);
+    }
+    // 将库函数加入符号表
+    symbol_table->Insert(func_decl->name, nullptr, true, false, func_decl->type.name);
+    program->functions.push_back(std::move(func_decl));
+  }
+
+  // 遍历所有函数定义和全局变量声明
+  for (auto& func_def_or_decl : ast->func_defs_or_decls) {
+    if (dynamic_cast<FuncDefAST*>(func_def_or_decl.get())) {
+      current_func = std::make_unique<Function>();
+      auto def = static_cast<FuncDefAST*>(func_def_or_decl.get());
+      auto func_type = static_cast<FuncTypeAST*>(def->func_type.get());
+      // 将函数加入到符号表中
+      symbol_table->Insert(def->ident, nullptr, true, false, func_type->type);
+      // 处理函数
+      func_def_or_decl->Accept(this);
+      program->functions.push_back(std::move(current_func));
+    } else if (dynamic_cast<VarDeclAST*>(func_def_or_decl.get())) {
+      // 处理全局变量声明
+      GlobalVarComputer global_var_computer(symbol_table.get());
+      func_def_or_decl->Accept(&global_var_computer);
+      for (auto& [ident, info] : global_var_computer.global_var_infos) {
+        auto init_value = std::make_shared<Value_INTEGER>(info.init_val);
+        auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
+          name_manager->AllocateNamed(ident), init_value);
+        program->values.push_back(global_alloc);
+        symbol_table->Insert(ident, global_alloc, false, info.is_const, info.type);
+      }
+    } else if (dynamic_cast<ConstDeclAST*>(func_def_or_decl.get())) {
+      // 处理全局常量声明（常量不需要分配内存，直接存储值）
+      GlobalVarComputer global_var_computer(symbol_table.get());
+      func_def_or_decl->Accept(&global_var_computer);
+      for (auto& [ident, info] : global_var_computer.global_var_infos) {
+        auto const_value = std::make_shared<Value_INTEGER>(info.init_val);
+        symbol_table->Insert(ident, const_value, false, true, info.type);
+      }
+    }
   }
 }
 
@@ -74,7 +118,6 @@ void IRgenerator::Visit(FuncDefAST* ast) {
 void IRgenerator::Visit(BlockAST* ast) {
   LOG("BlockAST");
   symbol_table->Push();
-  // std::cout << "BlockAST { " << ast->type << " }" << std::endl;
   for (auto& item : *(ast->block_items)) {
     item->Accept(this);
     if (current_block->IsTerminated()) {
@@ -214,14 +257,14 @@ void IRgenerator::Visit(StmtAST* ast) {
       break;
     }
     case Stmt_Type::AST_STMT_BREAK: {
-      std::string end_name = "while_end_" + std::to_string(while_entry_stack.top());
+      std::string end_name = "while_end" + (while_entry_stack.top() ? "_"+std::to_string(while_entry_stack.top()) : "");
       current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
       // 标记当前块已终止
       current_block->Terminate();
       break;
     }
     case Stmt_Type::AST_STMT_CONTINUE: {
-      std::string while_entry_name = "while_entry_" + std::to_string(while_entry_stack.top());
+      std::string while_entry_name = "while_entry" + (while_entry_stack.top() ? "_"+std::to_string(while_entry_stack.top()) : "");
       current_block->stmts.push_back(std::make_shared<Value_JUMP>(while_entry_name));
       // 标记当前块已终止
       current_block->Terminate();
@@ -284,48 +327,60 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     //   if (lhs == 0) result = (rhs != 0);
     //   return result;
     auto& l_or = std::get<LOrExpAST::LOrExp>(ast->mem);
-    
-    // Step 1: 分配临时变量，默认值为 1 (true)
-    //   @result = alloc i32
-    //   store 1, @result
-    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
-    symbol_table->Insert(alloc->name, alloc, false, false, "i32");
-    auto assign = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(1), alloc);
-    current_block->stmts.push_back(alloc);
-    current_block->stmts.push_back(assign);
-    
-    // Step 2: 计算 lhs 和 rhs 的值
-    l_or.l_or_exp->Accept(this);  // lhs
+
+    // Step 1: 只计算 lhs
+    l_or.l_or_exp->Accept(this);
     auto lhs_val = current_value_stack.top();
     current_value_stack.pop();
-    l_or.l_and_exp->Accept(this); // rhs
-    auto rhs_val = current_value_stack.top();
-    current_value_stack.pop();
+
+    // 如果 lhs 是非零常量，直接返回 1（短路）
+    if (lhs_val->type == Value_Type::KOOPA_RVT_INTEGER) {
+      auto l = static_cast<Value_INTEGER*>(lhs_val.get());
+      if (l->val != 0) {
+        current_value_stack.push(std::make_shared<Value_INTEGER>(1));
+        return;
+      }
+      // lhs 是 0，需要计算 rhs
+      l_or.l_and_exp->Accept(this);
+      auto rhs_val = current_value_stack.top();
+      current_value_stack.pop();
+      if (rhs_val->type == Value_Type::KOOPA_RVT_INTEGER) {
+        auto r = static_cast<Value_INTEGER*>(rhs_val.get());
+        current_value_stack.push(std::make_shared<Value_INTEGER>(r->val != 0 ? 1 : 0));
+      } else {
+        auto neq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
+        current_block->stmts.push_back(neq);
+        current_value_stack.push(neq);
+      }
+      return;
+    }
+    
+    // Step 2: 分配临时变量，默认值为 1 (true)
+    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
+    symbol_table->Insert(alloc->name, alloc, false, false, "i32");
+    current_block->stmts.push_back(alloc);
+    current_block->stmts.push_back(std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(1), alloc));
     
     // Step 3: 生成分支指令
-    //   %cond = eq lhs, 0
-    //   br %cond, %then, %end
     auto then_name = name_manager->AllocateLabel("then");
     auto end_name = name_manager->AllocateLabel("end");
     auto eq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), lhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_EQ);
     current_block->stmts.push_back(eq);
-    auto if_branch = std::make_shared<Value_BRANCH>(eq, then_name, end_name);
-    current_block->stmts.push_back(if_branch);
+    current_block->stmts.push_back(std::make_shared<Value_BRANCH>(eq, then_name, end_name));
     current_func->blocks.push_back(std::move(current_block));
     
-    // Step 4: 生成 then 基本块 (lhs 为 false 时执行)
-    //   %rhs_bool = ne rhs, 0
-    //   store %rhs_bool, @result
-    //   jump %end
+    // Step 4: 生成 then 基本块 (lhs 为 false 时才计算 rhs)
     current_block = std::make_unique<BasicBlock>(then_name);
+    l_or.l_and_exp->Accept(this);  // 在 then 块中计算 rhs
+    auto rhs_val = current_value_stack.top();
+    current_value_stack.pop();
     auto neq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
     current_block->stmts.push_back(neq);
     current_block->stmts.push_back(std::make_shared<Value_STORE>(neq, alloc));
     current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
     current_func->blocks.push_back(std::move(current_block));
     
-    // Step 5: 生成 end 基本块，加载结果并压栈
-    //   %result = load @result
+    // Step 5: 生成 end 基本块
     current_block = std::make_unique<BasicBlock>(end_name);
     auto load = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), alloc);
     current_block->stmts.push_back(load);
@@ -346,48 +401,60 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     //   if (lhs != 0) result = (rhs != 0);
     //   return result;
     auto& l_and = std::get<LAndExpAST::LAndExp>(ast->mem);
-    
-    // Step 1: 分配临时变量，默认值为 0 (false)
-    //   @result = alloc i32
-    //   store 0, @result
-    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
-    symbol_table->Insert(alloc->name, alloc, false, false, "i32");
-    auto assign = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(0), alloc);
-    current_block->stmts.push_back(alloc);
-    current_block->stmts.push_back(assign);
-    
-    // Step 2: 计算 lhs 和 rhs 的值
-    l_and.l_and_exp->Accept(this);  // lhs
+
+    // Step 1: 只计算 lhs
+    l_and.l_and_exp->Accept(this);
     auto lhs_val = current_value_stack.top();
     current_value_stack.pop();
-    l_and.eq_exp->Accept(this);     // rhs
-    auto rhs_val = current_value_stack.top();
-    current_value_stack.pop();
+
+    // 如果 lhs 是常量 0，直接返回 0（短路）
+    if (lhs_val->type == Value_Type::KOOPA_RVT_INTEGER) {
+      auto l = static_cast<Value_INTEGER*>(lhs_val.get());
+      if (l->val == 0) {
+        current_value_stack.push(std::make_shared<Value_INTEGER>(0));
+        return;
+      }
+      // lhs 是非零常量，需要计算 rhs
+      l_and.eq_exp->Accept(this);
+      auto rhs_val = current_value_stack.top();
+      current_value_stack.pop();
+      if (rhs_val->type == Value_Type::KOOPA_RVT_INTEGER) {
+        auto r = static_cast<Value_INTEGER*>(rhs_val.get());
+        current_value_stack.push(std::make_shared<Value_INTEGER>(r->val != 0 ? 1 : 0));
+      } else {
+        auto neq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
+        current_block->stmts.push_back(neq);
+        current_value_stack.push(neq);
+      }
+      return;
+    }
+
+    // Step 2: 分配临时变量，默认值为 0 (false)
+    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
+    symbol_table->Insert(alloc->name, alloc, false, false, "i32");
+    current_block->stmts.push_back(alloc);
+    current_block->stmts.push_back(std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(0), alloc));
     
     // Step 3: 生成分支指令
-    //   %cond = ne lhs, 0    (或 eq lhs, 1)
-    //   br %cond, %then, %end
     auto then_name = name_manager->AllocateLabel("then");
     auto end_name = name_manager->AllocateLabel("end");
-    auto eq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), lhs_val, std::make_shared<Value_INTEGER>(1), Binary_Op_Type::KOOPA_RBO_EQ);
-    current_block->stmts.push_back(eq);
-    auto if_branch = std::make_shared<Value_BRANCH>(eq, then_name, end_name);
-    current_block->stmts.push_back(if_branch);
+    auto ne = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), lhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
+    current_block->stmts.push_back(ne);
+    current_block->stmts.push_back(std::make_shared<Value_BRANCH>(ne, then_name, end_name));
     current_func->blocks.push_back(std::move(current_block));
     
-    // Step 4: 生成 then 基本块 (lhs 为 true 时执行)
-    //   %rhs_bool = ne rhs, 0
-    //   store %rhs_bool, @result
-    //   jump %end
+    // Step 4: 生成 then 基本块 (lhs 为 true 时才计算 rhs)
     current_block = std::make_unique<BasicBlock>(then_name);
+    l_and.eq_exp->Accept(this);  // 在 then 块中计算 rhs
+    auto rhs_val = current_value_stack.top();
+    current_value_stack.pop();
     auto neq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), rhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
     current_block->stmts.push_back(neq);
     current_block->stmts.push_back(std::make_shared<Value_STORE>(neq, alloc));
     current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
     current_func->blocks.push_back(std::move(current_block));
     
-    // Step 5: 生成 end 基本块，加载结果并压栈
-    //   %result = load @result
+    // Step 5: 生成 end 基本块
     current_block = std::make_unique<BasicBlock>(end_name);
     auto load = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), alloc);
     current_block->stmts.push_back(load);
@@ -697,11 +764,10 @@ void IRgenerator::Visit(VarDeclAST* ast) {
       auto store = std::make_shared<Value_STORE>(current_value_stack.top(), alloc);
       current_block->stmts.push_back(store);
       current_value_stack.pop();
-      // 在符号表中插入变量
     }
+    // 在符号表中插入变量
     symbol_table->Insert(var_def->ident, alloc, false, false, ast->elem_type);
   }
-
 }
 
 void IRgenerator::Visit(NullAST* ast) {
@@ -826,6 +892,7 @@ void IROutputer::Visit(BasicBlock* block) {
 }
 
 void IROutputer::Visit(Function* func) {
+  fs << std::endl;
   fs << "fun @" << func->name << "(";
   for (size_t i = 0; i < func->params.size(); ++i) {
     auto param = static_cast<Value_FUNC_ARG_REF*>(func->params[i].get());
@@ -845,10 +912,27 @@ void IROutputer::Visit(Function* func) {
   fs << "}" << std::endl;
 }
 
+void IROutputer::Visit(Function_Decl *func_decl) {
+  fs << "decl @" << func_decl->name << "(";
+  for (size_t i = 0; i < func_decl->params_type.size(); ++i) {
+    fs << func_decl->params_type[i];
+    if (i != func_decl->params_type.size() - 1) {
+      fs << ", ";
+    }
+  }
+  fs << ")";
+  if (func_decl->type.name != "void") {
+    fs << ": " << func_decl->type.name;
+  }
+  fs << std::endl;
+}
+
 void IROutputer::Visit(Program* program) {
+  for (auto& value : program->values) {
+    value->Accept(this);
+  }
   for (auto& func : program->functions) {
     func->Accept(this);
-    fs << std::endl;
   }
 }
 
@@ -896,4 +980,269 @@ void IROutputer::Visit(Value_Call* call) {
   }
   fs << ")" << std::endl;
 }
-  
+
+void IROutputer::Visit(Value_GLOBOL_ALLOC* glob_alloc) {
+  fs << "global " << glob_alloc->name << " = alloc i32, ";
+  if (glob_alloc->init) {
+    glob_alloc->init->Accept(this);
+  } else {
+    fs << "0";
+  }
+  fs << std::endl;
+}
+
+GlobalVarComputer::GlobalVarComputer(SymbolTable* symbol_table) 
+  : val_stack(std::make_unique<std::stack<int>>()), symbol_table(symbol_table) {}
+
+GlobalVarComputer::~GlobalVarComputer() {}
+
+void GlobalVarComputer::Visit(VarDeclAST* ast) {
+  for (auto& item : *(ast->var_def_list)) {
+    auto var_def = static_cast<VarDefAST*>(item.get());
+    int init_val = 0;
+    if (var_def->type == 1 && var_def->var_exp) {
+      var_def->var_exp->Accept(this);
+      init_val = val_stack->top();
+      val_stack->pop();
+    }
+    global_var_infos[var_def->ident] = {init_val, ast->elem_type, false};
+  }
+}
+
+void GlobalVarComputer::Visit(ConstDeclAST* ast) {
+  for (auto& item : *(ast->const_def_list)) {
+    auto const_def = static_cast<ConstDefAST*>(item.get());
+    const_def->const_exp->Accept(this);
+    int val = val_stack->top();
+    val_stack->pop();
+    global_var_infos[const_def->ident] = {val, ast->elem_type, true};
+  }
+}
+
+void GlobalVarComputer::Visit(ConstDefAST* ast) {
+  ast->const_exp->Accept(this);
+}
+
+void GlobalVarComputer::Visit(VarDefAST* ast) {
+  if (ast->type == 1 && ast->var_exp) {
+    ast->var_exp->Accept(this);
+  } else {
+    val_stack->push(0);
+  }
+}
+
+void GlobalVarComputer::Visit(LValAST* ast) {
+  auto symbol = symbol_table->FindSymbol(ast->ident);
+  if (symbol && symbol->is_const) {
+    auto val = symbol->value;
+    if (val && val->type == Value_Type::KOOPA_RVT_INTEGER) {
+      val_stack->push(static_cast<Value_INTEGER*>(val.get())->val);
+      return;
+    }
+  }
+  val_stack->push(0);
+}
+
+void GlobalVarComputer::Visit(NumberAST* ast) {
+  val_stack->push(ast->num);
+}
+
+void GlobalVarComputer::Visit(ExpAST* ast) {
+  ast->l_or_exp->Accept(this);
+}
+
+void GlobalVarComputer::Visit(PrimaryExpAST* ast) {
+  ast->mem->Accept(this);
+}
+
+void GlobalVarComputer::Visit(UnaryExpAST* ast) {
+  if (ast->type == 0) {
+    auto& primary = std::get<std::unique_ptr<BaseAST>>(ast->mem);
+    primary->Accept(this);
+  } else {
+    auto& unary = std::get<UnaryExpAST::UnaryExp>(ast->mem);
+    unary.unary_exp->Accept(this);
+    unary.unary_op->Accept(this);
+  }
+}
+
+void GlobalVarComputer::Visit(UnaryOpAST* ast) {
+  int rhs = val_stack->top();
+  val_stack->pop();
+  switch (ast->op) {
+    case Op_Type::AST_UNARY_OP_NEG:
+      val_stack->push(-rhs);
+      break;
+    case Op_Type::AST_UNARY_OP_NOT:
+      val_stack->push(rhs == 0 ? 1 : 0);
+      break;
+    case Op_Type::AST_UNARY_OP_POS:
+      val_stack->push(rhs);
+      break;
+    default:
+      break;
+  }
+}
+
+void GlobalVarComputer::Visit(AddExpAST* ast) {
+  if (ast->type == 0) {
+    auto& mul = std::get<std::unique_ptr<BaseAST>>(ast->mem);
+    mul->Accept(this);
+  } else {
+    auto& add = std::get<AddExpAST::AddExp>(ast->mem);
+    add.add_exp->Accept(this);
+    add.mul_exp->Accept(this);
+    add.add_op->Accept(this);
+  }
+}
+
+void GlobalVarComputer::Visit(MulExpAST* ast) {
+  if (ast->type == 0) {
+    auto& unary = std::get<std::unique_ptr<BaseAST>>(ast->mem);
+    unary->Accept(this);
+  } else {
+    auto& mul = std::get<MulExpAST::MulExp>(ast->mem);
+    mul.mul_exp->Accept(this);
+    mul.unary_exp->Accept(this);
+    mul.mul_op->Accept(this);
+  }
+}
+
+void GlobalVarComputer::Visit(RelExpAST* ast) {
+  if (ast->type == 0) {
+    auto& rel = std::get<std::unique_ptr<BaseAST>>(ast->mem);
+    rel->Accept(this);
+  } else {
+    auto& rel = std::get<RelExpAST::RelExp>(ast->mem);
+    rel.rel_exp->Accept(this);
+    rel.add_exp->Accept(this);
+    rel.rel_op->Accept(this);
+  }
+}
+
+void GlobalVarComputer::Visit(EqExpAST* ast) {
+  if (ast->type == 0) {
+    auto& eq = std::get<std::unique_ptr<BaseAST>>(ast->mem);
+    eq->Accept(this);
+  } else {
+    auto& eq = std::get<EqExpAST::EqExp>(ast->mem);
+    eq.eq_exp->Accept(this);
+    eq.rel_exp->Accept(this);
+    eq.eq_op->Accept(this);
+  }
+}
+
+void GlobalVarComputer::Visit(LOrExpAST* ast) {
+  if (ast->type == 0) {
+    auto& l_or = std::get<std::unique_ptr<BaseAST>>(ast->mem);
+    l_or->Accept(this);
+  } else {
+    auto& l_or = std::get<LOrExpAST::LOrExp>(ast->mem);
+    l_or.l_or_exp->Accept(this);
+    l_or.l_and_exp->Accept(this);
+    int rhs = val_stack->top();
+    val_stack->pop();
+    int lhs = val_stack->top();
+    val_stack->pop();
+    val_stack->push(lhs || rhs ? 1 : 0);
+  }
+}
+
+void GlobalVarComputer::Visit(LAndExpAST* ast) {
+  if (ast->type == 0) {
+    auto& l_and = std::get<std::unique_ptr<BaseAST>>(ast->mem);
+    l_and->Accept(this);
+  } else {
+    auto& l_and = std::get<LAndExpAST::LAndExp>(ast->mem);
+    l_and.l_and_exp->Accept(this);
+    l_and.eq_exp->Accept(this);
+    int rhs = val_stack->top();
+    val_stack->pop();
+    int lhs = val_stack->top();
+    val_stack->pop();
+    val_stack->push(lhs && rhs ? 1 : 0);
+  }
+}
+
+void GlobalVarComputer::Visit(BinaryOpAST* ast) {
+  int rhs = val_stack->top();
+  val_stack->pop();
+  int lhs = val_stack->top();
+  val_stack->pop();
+  int result = 0;
+  switch (ast->op) {
+    case Op_Type::AST_BINARY_OP_ADD:
+      result = lhs + rhs;
+      break;
+    case Op_Type::AST_BINARY_OP_SUB:
+      result = lhs - rhs;
+      break;
+    case Op_Type::AST_BINARY_OP_MUL:
+      result = lhs * rhs;
+      break;
+    case Op_Type::AST_BINARY_OP_DIV:
+      result = lhs / rhs;
+      break;
+    case Op_Type::AST_BINARY_OP_MOD:
+      result = lhs % rhs;
+      break;
+    case Op_Type::AST_BINARY_OP_EQ:
+      result = (lhs == rhs) ? 1 : 0;
+      break;
+    case Op_Type::AST_BINARY_OP_NE:
+      result = (lhs != rhs) ? 1 : 0;
+      break;
+    case Op_Type::AST_BINARY_OP_LT:
+      result = (lhs < rhs) ? 1 : 0;
+      break;
+    case Op_Type::AST_BINARY_OP_LE:
+      result = (lhs <= rhs) ? 1 : 0;
+      break;
+    case Op_Type::AST_BINARY_OP_GT:
+      result = (lhs > rhs) ? 1 : 0;
+      break;
+    case Op_Type::AST_BINARY_OP_GE:
+      result = (lhs >= rhs) ? 1 : 0;
+      break;
+    default:
+      break;
+  }
+  val_stack->push(result);
+}
+
+void GlobalVarComputer::Visit(LGBinaryOpAST* ast) {
+  int rhs = val_stack->top();
+  val_stack->pop();
+  int lhs = val_stack->top();
+  val_stack->pop();
+  int result = 0;
+  switch (ast->op) {
+    case Op_Type::AST_BINARY_OP_LA:
+      result = lhs && rhs ? 1 : 0;
+      break;
+    case Op_Type::AST_BINARY_OP_LO:
+      result = lhs || rhs ? 1 : 0;
+      break;
+    default:
+      break;
+  }
+  val_stack->push(result);
+}
+
+void GlobalVarComputer::Visit(StmtAST* ast) {}
+
+void GlobalVarComputer::Visit(BlockItemAST* ast) {}
+
+void GlobalVarComputer::Visit(NullAST* ast) {}
+
+void GlobalVarComputer::Visit(FuncCallAST* ast) {}
+
+void GlobalVarComputer::Visit(OpAST* ast) {}
+
+void GlobalVarComputer::Visit(CompUnitAST* ast) {}
+
+void GlobalVarComputer::Visit(FuncTypeAST* ast) {}
+
+void GlobalVarComputer::Visit(FuncDefAST* ast) {}
+
+void GlobalVarComputer::Visit(BlockAST* ast) {}

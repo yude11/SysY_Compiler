@@ -37,15 +37,14 @@ class CompUnitAST : public BaseAST {
 
   void Dump() const override {
    std::cout << "CompUnitAST { ";
-   for (auto& func : func_defs) {
+   for (auto& func : func_defs_or_decls) {
      func->Dump();
    }
    std::cout << " }";
   }
   
   // 使用 vector 存储所有函数定义
-  std::vector<std::unique_ptr<BaseAST>> func_defs;
-  
+  std::vector<std::unique_ptr<BaseAST>> func_defs_or_decls;
 };
 
 // 对于FuncType会直接返回一个类型不会有推导过程

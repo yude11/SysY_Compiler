@@ -2,10 +2,10 @@
   // 声明在 .tab.hpp 中需要的头文件
   #include <memory>
   #include <string>
-
+  
   #include "AST.h"
   #include "type.h"
-
+  
   // 位置信息类型
   struct YYLTYPE {
     int first_line;
@@ -64,14 +64,13 @@ using namespace std;
 
 // 非终结符的类型定义
 // %type <str_val> 
-%type <ast_val> FuncDef FuncType Block Stmt Number PrimaryExp Exp
-%type <ast_list> FuncDefList 
+%type <ast_val> FuncDef Block Stmt Number PrimaryExp Exp
 %type <ast_val> LOrExp LAndExp EqExp RelExp UnaryExp AddExp MulExp UnaryOp 
 %type <ast_val> AddOp MulOp RelOp EqOp LAndOp LOrOp BlockItem ConstDef Decl ConstDecl 
-%type <ast_val> ConstInitVal LVal ConstExp VarDecl VarDef InitVal IfElse
+%type <ast_val> ConstInitVal LVal ConstExp VarDecl VarDef InitVal IfElse FuncDefOrDecl
 
-%type <ast_list> BlockItemList ConstDefList VarDefList FuncRParams
-%type <str_val> BType
+%type <ast_list> BlockItemList ConstDefList VarDefList FuncRParams FuncDefOrDeclList
+%type <str_val> Type
 %type <func_param_val> FuncFParam
 %type <func_param_list> FuncFParams
 
@@ -87,23 +86,32 @@ using namespace std;
 // 开始符, CompUnit 是多个函数定义的列表
 // 使用 vector 结构避免递归和所有权问题
 CompUnit
-  : FuncDefList {
+  : FuncDefOrDeclList {
     auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_defs = std::move(*$1);  // 转移 vector 所有权
+    comp_unit->func_defs_or_decls = std::move(*$1);  // 转移 vector 所有权
     delete $1;  // 释放临时的 vector 指针
     ast = std::move(comp_unit);
   }
   ;
 
 // FuncDefList 是函数定义列表，使用 vector 收集
-FuncDefList
-  : FuncDef {
+FuncDefOrDeclList
+  : FuncDefOrDecl {
     auto list = new std::vector<std::unique_ptr<BaseAST>>();
     list->emplace_back($1);  // 添加第一个函数
     $$ = list;
   }
-  | FuncDefList FuncDef {
+  | FuncDefOrDeclList FuncDefOrDecl {
     $1->emplace_back($2);  // 追加到已有列表
+    $$ = $1;
+  }
+  ;
+
+FuncDefOrDecl
+  : FuncDef {
+    $$ = $1;
+  }
+  | Decl {
     $$ = $1;
   }
   ;
@@ -119,16 +127,16 @@ FuncDefList
 // 虽然此处你看不出用 unique_ptr 和手动 delete 的区别, 但当我们定义了 AST 之后
 // 这种写法会省下很多内存管理的负担
 FuncDef
-  : FuncType IDENT '(' ')' Block {
+  : Type IDENT '(' ')' Block {
     auto ast = new FuncDefAST();
-    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->func_type = make_unique<FuncTypeAST>(*($1));
     ast->ident = *unique_ptr<string>($2);
     ast->block = unique_ptr<BaseAST>($5);
     $$ = ast;
   }
-  | FuncType IDENT '(' FuncFParams ')' Block {
+  | Type IDENT '(' FuncFParams ')' Block {
     auto ast = new FuncDefAST();
-    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->func_type = make_unique<FuncTypeAST>(*($1));
     ast->ident = *unique_ptr<string>($2);
     ast->block = unique_ptr<BaseAST>($6);
     ast->func_params = std::unique_ptr<FuncDefAST::FuncParams>($4);
@@ -137,12 +145,12 @@ FuncDef
   ;
 
 // 同上, 不再解释
-FuncType
+Type
   : INT {
-    $$ = new FuncTypeAST("i32");
+    $$ = new std::string("i32");
   }
   | VOID {
-    $$ = new FuncTypeAST("void");
+    $$ = new std::string("void");
   }
   ;
 
@@ -160,7 +168,7 @@ FuncType
     ;
 
   FuncFParam
-    : BType IDENT {
+    : Type IDENT {
       auto param = new FuncDefAST::FuncParam();
       param->type = *unique_ptr<string>($1);
       param->ident = *unique_ptr<string>($2);
@@ -328,7 +336,7 @@ Decl
   ;
 
 VarDecl
-  : BType VarDef ';' {
+  : Type VarDef ';' {
     auto ast = new VarDeclAST();
     ast->elem_type = *($1);
     // 创建一个空的list, 并添加一个元素
@@ -337,7 +345,7 @@ VarDecl
     ast->var_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>(vec);
     $$ = ast;
   }
-  | BType VarDef ',' VarDefList ';' {
+  | Type VarDef ',' VarDefList ';' {
     auto ast = new VarDeclAST();
     ast->elem_type = *($1);
     ast->var_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($4);
@@ -385,7 +393,7 @@ InitVal
 
 
 ConstDecl
-  : CONST BType ConstDef ';' {
+  : CONST Type ConstDef ';' {
     auto ast = new ConstDeclAST();
     ast->elem_type = *($2);
     // 创建一个空的list, 并添加一个元素
@@ -394,7 +402,7 @@ ConstDecl
     ast->const_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>(vec);
     $$ = ast;
   }
-  | CONST BType ConstDef ',' ConstDefList ';' {
+  | CONST Type ConstDef ',' ConstDefList ';' {
     auto ast = new ConstDeclAST();
     ast->elem_type = *($2);
     ast->const_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($5);
@@ -433,11 +441,11 @@ ConstInitVal
   }
   ;
 
-BType 
-  : INT {
-    $$ = new std::string("i32");
-  }
-  ;
+// BType 
+//   : INT {
+//     $$ = new std::string("i32");
+//   }
+//   ;
 
 //  表达式相关规则
 Exp

@@ -49,6 +49,18 @@ public:
     std::string elem_type;  // "i32", "i32*", 等
 };
 
+class Value_GLOBOL_ALLOC : public Value {
+public:
+    Value_GLOBOL_ALLOC(std::string name, std::shared_ptr<Value> init)
+        : Value(name, Value_Type::KOOPA_RVT_GLOBAL_ALLOC), init(init) {}
+    
+    void Accept(IRVisitor* visitor) override {
+        visitor->Visit(this);
+    }
+    
+    std::shared_ptr<Value> init;
+};
+
 // 内存加载指令
 class Value_LOAD : public Value {
 public:
@@ -207,9 +219,9 @@ class Function {
     Function(std::string type, std::string name) : type(type), name(name) {}
     Function() {}
     
-    ~Function() {}
+    virtual ~Function() {}
 
-    void Accept(IRVisitor* visitor) {
+    virtual void Accept(IRVisitor* visitor) {
       visitor->Visit(this);
     }
 
@@ -219,6 +231,21 @@ class Function {
 
     std::vector<std::shared_ptr<Value>> params;
     std::vector<std::unique_ptr<BasicBlock>> blocks;
+};
+
+class Function_Decl : public Function{
+  public:
+    Function_Decl(std::string type, std::string name) : Function(type, name) {}
+    Function_Decl() {}
+    
+    ~Function_Decl() override {}
+
+    void Accept(IRVisitor* visitor) override {
+      visitor->Visit(this);
+    }
+
+    // 函数参数 ...
+    std::vector<std::string> params_type;
 };
 
 // 程序
@@ -232,6 +259,6 @@ class Program {
       visitor->Visit(this);
     }
 
-    std::vector<std::unique_ptr<Value>> values;
+    std::vector<std::shared_ptr<Value>> values;
     std::vector<std::unique_ptr<Function>> functions;
 };
