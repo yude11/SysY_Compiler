@@ -39,12 +39,11 @@ void AssemblyGenerator::Visit(Function *func) {
     // 将参数存入栈中
     for (size_t i = 0; i < func->params.size() && i < 8; i++) {
       auto r = "a" + std::to_string(i);
-      reg_allocator->value_to_reg[func->params[i].get()] = r;
+      auto param = func->params[i].get();
+      reg_allocator->AllocParams(param);
     }
     for (size_t i = 8; i < func->params.size(); i++) {
-      auto r = reg_allocator->Alloc(func->params[i].get());
-      fs << " lw    " << r << ", " << "-"<< (i-8)*4 << "(sp)" << std::endl;
-      fs << " sw    " << r << ", " << reg_allocator->GetLoc(func->params[i].get()) << "(sp)" << std::endl;
+      reg_allocator->value_to_loc[func->params[i].get()] = reg_allocator->stack_offset + (i - 8) * 4;
     }
     reg_allocator->Clear();
   }
@@ -98,22 +97,42 @@ void AssemblyGenerator::Visit(Value_RETURN *return_val) {
 
 void AssemblyGenerator::Visit(Value_BINARY *binary) {
   LOG("Value_BINARY");
-  auto l_r = reg_allocator->Alloc(binary->lhs.get());
-  assert(l_r != "");
-  auto r_r = reg_allocator->Alloc(binary->rhs.get());
-  assert(r_r != "");
-  if (binary->lhs->type == Value_Type::KOOPA_RVT_INTEGER) {
-    fs << " li    " << l_r << ", " << binary->lhs->name << std::endl;
-  } else {
-    reg_allocator->GetLoc(binary->lhs.get());
-    fs << " lw    " << l_r << ", " << reg_allocator->GetLoc(binary->lhs.get()) << "(sp)" << std::endl;
+  auto l_r = reg_allocator->Lookup(binary->lhs.get());
+  auto r_r = reg_allocator->Lookup(binary->rhs.get());
+  if (l_r == "") {
+    l_r = reg_allocator->Alloc(binary->lhs.get());
+    if (binary->lhs->type == Value_Type::KOOPA_RVT_INTEGER) {
+      fs << " li    " << l_r << ", " << binary->lhs->name << std::endl;
+    } else {
+      reg_allocator->GetLoc(binary->lhs.get());
+      fs << " lw    " << l_r << ", " << reg_allocator->GetLoc(binary->lhs.get()) << "(sp)" << std::endl;
+    }
   }
-  if (binary->rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
-    fs << " li    " << r_r << ", " << binary->rhs->name << std::endl;
-  } else {
-    reg_allocator->GetLoc(binary->rhs.get());
-    fs << " lw    " << r_r << ", " << reg_allocator->GetLoc(binary->rhs.get()) << "(sp)" << std::endl;
+  if (r_r == "") {
+    r_r = reg_allocator->Alloc(binary->rhs.get());
+    if (binary->rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
+      fs << " li    " << r_r << ", " << binary->rhs->name << std::endl;
+    } else {
+      reg_allocator->GetLoc(binary->rhs.get());
+      fs << " lw    " << r_r << ", " << reg_allocator->GetLoc(binary->rhs.get()) << "(sp)" << std::endl;
+    }
   }
+  // auto l_r = reg_allocator->Alloc(binary->lhs.get());
+  // assert(l_r != "");
+  // auto r_r = reg_allocator->Alloc(binary->rhs.get());
+  // assert(r_r != "");
+  // if (binary->lhs->type == Value_Type::KOOPA_RVT_INTEGER) {
+  //   fs << " li    " << l_r << ", " << binary->lhs->name << std::endl;
+  // } else {
+  //   reg_allocator->GetLoc(binary->lhs.get());
+  //   fs << " lw    " << l_r << ", " << reg_allocator->GetLoc(binary->lhs.get()) << "(sp)" << std::endl;
+  // }
+  // if (binary->rhs->type == Value_Type::KOOPA_RVT_INTEGER) {
+  //   fs << " li    " << r_r << ", " << binary->rhs->name << std::endl;
+  // } else {
+  //   reg_allocator->GetLoc(binary->rhs.get());
+  //   fs << " lw    " << r_r << ", " << reg_allocator->GetLoc(binary->rhs.get()) << "(sp)" << std::endl;
+  // }
   auto offset = reg_allocator->GetLoc(binary);
   // 访问二元表达式
   switch (binary->type) {
@@ -127,10 +146,10 @@ void AssemblyGenerator::Visit(Value_BINARY *binary) {
     }
     case Binary_Op_Type::KOOPA_RBO_NOT_EQ: {
       // 为当前Value分配寄存器
-      reg_allocator->Copy(binary->lhs.get(), binary);
-      fs << " xor   " << l_r << ", " << l_r << ", " << r_r << std::endl;
-      fs << " snez  " << l_r << ", " << l_r  << std::endl;
-      fs << " sw    " << l_r << ", " << offset << "(sp)" << std::endl;
+      auto res = reg_allocator->Alloc(binary);
+      fs << " xor   " << res << ", " << l_r << ", " << r_r << std::endl;
+      fs << " snez  " << res << ", " << res  << std::endl;
+      fs << " sw    " << res << ", " << offset << "(sp)" << std::endl;
       break;
     }
     case Binary_Op_Type::KOOPA_RBO_SUB: {
@@ -142,16 +161,16 @@ void AssemblyGenerator::Visit(Value_BINARY *binary) {
     }
     case Binary_Op_Type::KOOPA_RBO_MUL: {
       // 为右操作数分配寄存器
-      reg_allocator->Copy(binary->rhs.get(), binary);
-      fs << " mul   " << r_r << ", " << l_r << ", " << r_r << std::endl;
-      fs << " sw    " << r_r << ", " << offset << "(sp)" << std::endl;
+      auto res = reg_allocator->Alloc(binary);
+      fs << " mul   " << res << ", " << l_r << ", " << r_r << std::endl;
+      fs << " sw    " << res << ", " << offset << "(sp)" << std::endl;
       break;
     }
     case Binary_Op_Type::KOOPA_RBO_DIV: {
       // 为右操作数分配寄存器
-      reg_allocator->Copy(binary->rhs.get(), binary);
-      fs << " div   " << r_r << ", " << l_r << ", " << r_r << std::endl;
-      fs << " sw    " << r_r << ", " << offset << "(sp)" << std::endl;
+      auto res = reg_allocator->Alloc(binary);
+      fs << " div   " << res << ", " << l_r << ", " << r_r << std::endl;
+      fs << " sw    " << res << ", " << offset << "(sp)" << std::endl;
       break;
     }
     case Binary_Op_Type::KOOPA_RBO_ADD: {
@@ -268,11 +287,15 @@ void AssemblyGenerator::Visit(Value_STORE *store) {
   LOG("Value_STORE");
   // 访问存储指令 store %0, @x (将 %0 中的值存到 @x 中)
   // 1. 访问 %0 并分配寄存器
-  auto r = reg_allocator->Alloc(store->value.get());
-  if (store->value->type == Value_Type::KOOPA_RVT_INTEGER) {
-    fs << " li    " << r << ", " << store->value->name << std::endl;
-  } else {
-    fs << " lw    " << r << ", " << reg_allocator->GetLoc(store->value.get()) << "(sp)" << std::endl;
+    auto r = reg_allocator->Lookup(store->value.get());
+  if (r == "") {
+    r = reg_allocator->Alloc(store->value.get());
+    if (store->value->type == Value_Type::KOOPA_RVT_INTEGER) {
+      fs << " li    " << r << ", " << store->value->name << std::endl;
+    } else {
+      reg_allocator->GetLoc(store->value.get());
+      fs << " lw    " << r << ", " << reg_allocator->GetLoc(store->value.get()) << "(sp)" << std::endl;
+    }
   }
   // 2. 从栈中加载当前 @x 的偏移，将 %0 中的值存到 @x 中
   int offset = reg_allocator->GetLoc(store->dst.get());
@@ -313,20 +336,33 @@ void AssemblyGenerator::Visit(Value_Call *call) {
     if (arg->type == Value_Type::KOOPA_RVT_INTEGER) {
       fs << " li    " << r << ", " << arg->name << std::endl;
     } else {
-      auto r = reg_allocator->Alloc(arg);
-      fs << " lw    " << r << ", " << reg_allocator->GetLoc(arg) << "(sp)" << std::endl;
+      auto r1 = reg_allocator->Lookup(arg);
+      if (r1 == "") {
+        // 如果不在寄存器中，从栈中读取到寄存器中
+        fs << " lw    " << r << ", " << reg_allocator->GetLoc(arg) << "(sp)" << std::endl;
+      } else {
+        // 如果在寄存器中，直接将值移动到a0-a7寄存器中
+        fs << " mv    " << r << ", " << r1 << std::endl;
+      }
     }
   }
   // 当参数编号大于等于8时，存放到栈中
   for (int i = 8; i < call->args.size(); i++) {
     auto arg = call->args[i].get();
-    auto r = reg_allocator->Alloc(arg);
     if (arg->type == Value_Type::KOOPA_RVT_INTEGER) {
+      auto r = reg_allocator->Alloc(arg);
       fs << " li    " << r << ", " << arg->name << std::endl;
+      fs << " sw    " << r << ", " << reg_allocator->param_offset + 4 * (i - 8) << "(sp)" << std::endl;
     } else {
-      fs << " lw    " << r << ", " << reg_allocator->GetLoc(arg) << "(sp)" << std::endl;
+      auto r = reg_allocator->Lookup(arg);
+      if (r == "") {
+        // 如果不在寄存器中，从栈中读取到寄存器中
+        r = reg_allocator->Alloc(arg);
+        fs << " lw    " << r << ", " << reg_allocator->GetLoc(arg) << "(sp)" << std::endl;
+      }
+      fs << " sw    " << r << ", " << reg_allocator->param_offset + 4 * (i - 8) << "(sp)" << std::endl;
     }
-    fs << " sw    " << r << ", " << (4 * (i - 8)) << "(sp)" << std::endl;
+    reg_allocator->Clear();
   }
   fs << " call " << call->ident.substr(1) << std::endl;
   reg_allocator->Clear();
@@ -334,5 +370,4 @@ void AssemblyGenerator::Visit(Value_Call *call) {
   if (call->name != "null") {
     fs << " sw    a0, " << reg_allocator->GetLoc(call) << "(sp)" << std::endl;
   }
-  // fs << " jal " << call->func->name << std::endl;s
 }

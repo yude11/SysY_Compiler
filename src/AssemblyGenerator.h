@@ -19,10 +19,11 @@ class RegAllocator {
 public:
   // typedef std::variant<std::string, int> Location; 
   // 值到寄存器的映射
-  std::unordered_map<Value*, std::string> value_to_reg;
-  // std::unordered_map<Value*, int> where_is_value; // 0: 寄存器, 1: 栈
-  // 值到栈偏移的映射
-  std::unordered_map<Value*, int> value_to_loc;
+  std::unordered_map<Value*, std::string> value_to_reg_t;
+  std::unordered_map<Value*, std::string> value_to_reg_a;
+    // 值到栈偏移的映射
+    std::unordered_map<Value*, int> value_to_loc;
+  std::unordered_map<Value*, int> where_is_value; // 0: 寄存器t, 1: 寄存器a, 2: 栈
   // 可用临时寄存器栈
   std::stack<std::string> free_regs;
   // 可用参数寄存器栈
@@ -53,37 +54,46 @@ public:
     }
     std::string reg = free_regs.top();
     free_regs.pop();
-    value_to_reg[value] = reg;
+    value_to_reg_t[value] = reg;
     return reg;
   }
 
-  std::string AllocParams(const std::vector<std::shared_ptr<Value>>& args) {
-    for (size_t i = 0; i < args.size() && i < 8; i++) {
-      // auto arg = args[i].get();
+  std::string AllocParams(Value* arg) {
+    auto r = Lookup(arg);
+    if (r != "") {
+      LOG("Duplicate Alloc");
+      return r;
+    }
+    if (param_regs.empty()) {
+      LOG("No more parameter registers available, spilling to stack");
+      // 溢出到栈
+      int offset = param_offset;
+      param_offset += 4;
+      value_to_loc[arg] = offset;
+      return std::to_string(offset) + "(sp)";
+    } else {
       std::string reg = param_regs.top();
       param_regs.pop();
-      // value_to_loc[arg] = reg;
+      value_to_reg_a[arg] = reg;
+      return reg;
     }
-    for (size_t i = 8; i < args.size(); i++) {
-      auto arg = args[i].get();
-      value_to_loc[arg] = param_offset + 4 * (i - 8);
-    }
-    return "";
   }
 
   std::string AllocZero(Value* value) {
-    value_to_reg[value] = "x0";
+    value_to_reg_t[value] = "x0";
     return "x0";
   }
 
   void Copy(Value* src, Value* dst) {
-    value_to_reg[dst] = value_to_reg[src];
+    value_to_reg_t[dst] = value_to_reg_t[src];
   }
   
-  // 查找值对应的寄存器
+  // 查找值对应的寄存器或栈位置
   std::string Lookup(Value* value) {
-    if (value_to_reg.find(value) != value_to_reg.end()) {
-      return value_to_reg[value];
+    if (value_to_reg_t.find(value) != value_to_reg_t.end()) {
+      return value_to_reg_t[value];
+    } else if (value_to_reg_a.find(value) != value_to_reg_a.end()) {
+      return value_to_reg_a[value];
     }
     return "";  // 未找到
   }
@@ -93,6 +103,7 @@ public:
     if (it != value_to_loc.end()) {
       return it->second;
     }
+    assert(0 && "error: value not found in stack");
     return -1;  // 未找到
   }
 
@@ -160,8 +171,8 @@ public:
   }
 
   void Clear() {
-    // 清除所有寄存器分配
-    value_to_reg.clear();
+    // 清除所有临时寄存器分配
+    value_to_reg_t.clear();
     while (!free_regs.empty()) {
       free_regs.pop();
     }
@@ -172,6 +183,7 @@ public:
   }
 
   void Reset() {
+    // 清除所有寄存器分配和栈空间分配
     Clear();
     stack_offset = 0;
     param_offset = 0;
