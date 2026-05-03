@@ -78,6 +78,7 @@ class IROutputer : public IRVisitor {
     void Visit(Value_BINARY* binary) override;
     void Visit(Value_ALLOC* alloc) override;
     void Visit(Value_GLOBOL_ALLOC* glob_alloc) override;
+    void Visit(Value_GET_ELEM_PTR* get_elem_ptr) override;
     void Visit(Value_LOAD* load) override;
     void Visit(Value_Call* call) override;
     void Visit(Value_STORE* store) override;
@@ -92,12 +93,13 @@ class IROutputer : public IRVisitor {
     std::unique_ptr<SymbolTable> symbol_table;
 };
 
-class GlobalVarComputer : public ASTVisitor {
+class ExpComputer : public ASTVisitor {
   public:
-    GlobalVarComputer(SymbolTable* symbol_table);
+    ExpComputer(SymbolTable* symbol_table);
 
-    ~GlobalVarComputer();
+    ~ExpComputer();
 
+    int Evaluate(BaseAST* ast);
     // 对各种AST节点进行访问函数
     void Visit(VarDeclAST* ast) override;
 
@@ -129,6 +131,8 @@ class GlobalVarComputer : public ASTVisitor {
     
     void Visit(NullAST* ast) override;
     void Visit(FuncCallAST* ast) override;
+
+    
 
     std::unique_ptr<std::stack<int>> val_stack;
     SymbolTable* symbol_table;

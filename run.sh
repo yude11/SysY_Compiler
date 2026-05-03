@@ -16,9 +16,9 @@ if [ "$action" = "run" ]; then
   fi
 elif [ "$action" = "test" ]; then
   if [ "$mode" = "ir" ]; then
-    autotest -koopa -s lv8 /root/compiler
+    autotest -koopa -s lv9 /root/compiler
   elif [ "$mode" = "asm" ]; then
-    autotest -riscv -s lv8 /root/compiler
+    autotest -riscv -s lv9 /root/compiler
   else
     echo "Usage: $0 [run|test] [ir|asm]"
     exit 1

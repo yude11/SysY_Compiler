@@ -31,7 +31,7 @@ void IRgenerator::Visit(CompUnitAST* ast) {
       func_decl->params_type.push_back(func[i]);
     }
     // 将库函数加入符号表
-    symbol_table->Insert(func_decl->name, nullptr, true, false, func_decl->type.name);
+    symbol_table->Insert(func_decl->name, nullptr, SymbolType::Func, false, func_decl->type.name);
     program->functions.push_back(std::move(func_decl));
   }
 
@@ -42,28 +42,87 @@ void IRgenerator::Visit(CompUnitAST* ast) {
       auto def = static_cast<FuncDefAST*>(func_def_or_decl.get());
       auto func_type = static_cast<FuncTypeAST*>(def->func_type.get());
       // 将函数加入到符号表中
-      symbol_table->Insert(def->ident, nullptr, true, false, func_type->type);
+      symbol_table->Insert(def->ident, nullptr, SymbolType::Func, false, func_type->type);
       // 处理函数
       func_def_or_decl->Accept(this);
       program->functions.push_back(std::move(current_func));
     } else if (dynamic_cast<VarDeclAST*>(func_def_or_decl.get())) {
+      auto decl = static_cast<VarDeclAST*>(func_def_or_decl.get());
       // 处理全局变量声明
-      GlobalVarComputer global_var_computer(symbol_table.get());
-      func_def_or_decl->Accept(&global_var_computer);
-      for (auto& [ident, info] : global_var_computer.global_var_infos) {
-        auto init_value = std::make_shared<Value_INTEGER>(info.init_val);
+      ExpComputer global_var_computer(symbol_table.get());
+      for (auto& def : *(decl->var_def_list)) {
+        auto var_def = static_cast<VarDefAST*>(def.get());
+        std::vector<std::shared_ptr<Value>> init_vals;
+        SymbolType symbol_type = SymbolType::Var;
+        switch (var_def->type) {
+          case 0:
+            init_vals.push_back(std::make_shared<Value_INTEGER>(0));
+            symbol_type = SymbolType::Var;
+            break;
+          case 1:
+            init_vals.push_back(std::make_shared<Value_INTEGER>(
+                global_var_computer.Evaluate(var_def->var_exps->at(0).get())));
+                symbol_type = SymbolType::Var;
+            break;
+          case 2: {
+            // 首先计算数组的大小
+            int array_size = global_var_computer.Evaluate(var_def->array_size.get());
+            symbol_type = SymbolType::Array;
+            for (int i = 0; i < array_size; i++) {
+              init_vals.push_back(std::make_shared<Value_INTEGER>(0));
+            }
+            break;
+          }
+          case 3: {
+            // 首先计算数组的大小
+            int array_size = global_var_computer.Evaluate(var_def->array_size.get());
+            symbol_type = SymbolType::Array;
+            for (int i = 0; i < var_def->var_exps->size(); i++) {
+              init_vals.push_back(std::make_shared<Value_INTEGER>(
+                  global_var_computer.Evaluate(var_def->var_exps->at(i).get())));
+            }
+            for (int i = var_def->var_exps->size(); i < array_size; i++) {
+              init_vals.push_back(std::make_shared<Value_INTEGER>(0));
+            }
+            break;
+          }
+          default:
+            break;
+        }
         auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
-          name_manager->AllocateNamed(ident), init_value);
+            name_manager->AllocateNamed(var_def->ident), init_vals);
         program->values.push_back(global_alloc);
-        symbol_table->Insert(ident, global_alloc, false, info.is_const, info.type);
+        symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type);
       }
     } else if (dynamic_cast<ConstDeclAST*>(func_def_or_decl.get())) {
+      auto decl = static_cast<ConstDeclAST*>(func_def_or_decl.get());
       // 处理全局常量声明（常量不需要分配内存，直接存储值）
-      GlobalVarComputer global_var_computer(symbol_table.get());
-      func_def_or_decl->Accept(&global_var_computer);
-      for (auto& [ident, info] : global_var_computer.global_var_infos) {
-        auto const_value = std::make_shared<Value_INTEGER>(info.init_val);
-        symbol_table->Insert(ident, const_value, false, true, info.type);
+      ExpComputer global_var_computer(symbol_table.get());
+      for (auto& def : *(decl->const_def_list)) {
+        auto const_def = static_cast<ConstDefAST*>(def.get());
+        switch (const_def->type) {
+          case 0: {
+            auto const_value = std::make_shared<Value_INTEGER>(
+                      global_var_computer.Evaluate(const_def->const_exps->at(0).get()));
+            symbol_table->Insert(const_def->ident, const_value, SymbolType::Var, true, decl->elem_type);
+            break;
+          }
+          case 1: {
+            int array_size = global_var_computer.Evaluate(const_def->array_size.get());
+            std::vector<std::shared_ptr<Value>> init_vals;
+            for (int i = 0; i < array_size; i++) {
+              init_vals.push_back(std::make_shared<Value_INTEGER>(
+                  global_var_computer.Evaluate(const_def->const_exps->at(i).get())));
+            }
+            auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
+                name_manager->AllocateNamed(const_def->ident), init_vals);
+            program->values.push_back(global_alloc);
+            symbol_table->Insert(const_def->ident, global_alloc, SymbolType::Array, true, decl->elem_type);
+            break;
+          }
+          default:
+            break;
+        }
       }
     }
   }
@@ -91,7 +150,7 @@ void IRgenerator::Visit(FuncDefAST* ast) {
       auto val = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint(param->ident), param->type);
       current_block->stmts.push_back(val);
       current_block->stmts.push_back(std::make_shared<Value_STORE>(param_ref, val));
-      symbol_table->Insert(param->ident, val, false, false, param->type);
+      symbol_table->Insert(param->ident, val, SymbolType::Func, false, param->type);
       // 将参数加入到current_func的参数列表中
       current_func->params.push_back(param_ref);
     }
@@ -167,7 +226,18 @@ void IRgenerator::Visit(StmtAST* ast) {
       auto val = current_value_stack.top();
       current_value_stack.pop();
       /// 生成store指令
-      current_block->stmts.push_back(std::make_shared<Value_STORE>(val, variable));
+      if (lval->type == 0) {
+        // 普通变量：直接 store
+        current_block->stmts.push_back(std::make_shared<Value_STORE>(val, variable));
+      } else {
+        // 数组元素：先 getelemptr，再 store
+        lval->array_index->Accept(this);
+        auto index = current_value_stack.top();
+        current_value_stack.pop();
+        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), variable, index);
+        current_block->stmts.push_back(get_elem_ptr);
+        current_block->stmts.push_back(std::make_shared<Value_STORE>(val, get_elem_ptr));
+      }
       break;
     }
     case Stmt_Type::AST_STMT_BLOCK: {
@@ -357,7 +427,7 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     
     // Step 2: 分配临时变量，默认值为 1 (true)
     auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
-    symbol_table->Insert(alloc->name, alloc, false, false, "i32");
+    symbol_table->Insert(alloc->name, alloc, SymbolType::Var, false, "i32");
     current_block->stmts.push_back(alloc);
     current_block->stmts.push_back(std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(1), alloc));
     
@@ -431,7 +501,7 @@ void IRgenerator::Visit(LAndExpAST* ast) {
 
     // Step 2: 分配临时变量，默认值为 0 (false)
     auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
-    symbol_table->Insert(alloc->name, alloc, false, false, "i32");
+    symbol_table->Insert(alloc->name, alloc, SymbolType::Var, false, "i32");
     current_block->stmts.push_back(alloc);
     current_block->stmts.push_back(std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(0), alloc));
     
@@ -710,9 +780,46 @@ void IRgenerator::Visit(ConstDeclAST* ast) {
   LOG("ConstDeclAST");
   for (auto& item : *(ast->const_def_list)) {
     auto const_def = static_cast<ConstDefAST*>(item.get());
-    const_def->const_exp->Accept(this);
-    symbol_table->Insert(const_def->ident, current_value_stack.top(), false, true, ast->elem_type);
-    current_value_stack.pop();
+    switch (const_def->type) {
+    case 0:
+      // 常量定义
+      assert(const_def->const_exps->size() == 1 && "ConstDef must have one expression");
+      const_def->const_exps->at(0)->Accept(this);
+      symbol_table->Insert(const_def->ident, current_value_stack.top(), SymbolType::Var, true, ast->elem_type);
+      current_value_stack.pop();
+      break;
+    case 1:
+      ExpComputer computer(symbol_table.get());
+      // 数组定义
+      // 1. 生成alloc指令
+      std::vector<int> dims;
+      int array_size = computer.Evaluate(const_def->array_size.get());
+      dims.push_back(array_size);
+      auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(const_def->ident), ast->elem_type, dims);
+      current_block->stmts.push_back(alloc);
+      symbol_table->Insert(const_def->ident, alloc, SymbolType::Array, true, ast->elem_type);
+      // 2. 初始化数组 
+      for (int i = 0; i < const_def->const_exps->size(); i++) {
+        // int val = computer.Evaluate(const_def->const_exps->at(i).get());
+        const_def->const_exps->at(i)->Accept(this);
+        auto val = current_value_stack.top();
+        current_value_stack.pop();
+        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
+        current_block->stmts.push_back(get_elem_ptr);
+        /// 为store指令赋值，生成store指令
+        auto store = std::make_shared<Value_STORE>(val, get_elem_ptr);
+        current_block->stmts.push_back(store);
+      }
+      for (int i = const_def->const_exps->size(); i < array_size; i++) {
+        int val = 0;
+        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
+        current_block->stmts.push_back(get_elem_ptr);
+        /// 为store指令赋值，生成store指令
+        auto store = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(val), get_elem_ptr);
+        current_block->stmts.push_back(store);
+      }
+      break;
+    }
   }
 }
 
@@ -725,12 +832,26 @@ void IRgenerator::Visit(ConstDefAST* ast) {
 void IRgenerator::Visit(LValAST* ast) {
   LOG("LValAST");
   auto val = symbol_table->FindValue(ast->ident);
-  if (!symbol_table->FindSymbol(ast->ident)->is_const) {
-    /// 载入变量，生成load指令
-    auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), val);
-    current_block->stmts.push_back(load_val);
-    /// 压入load的结果
-    current_value_stack.push(load_val);
+  if (!symbol_table->FindSymbol(ast->ident)->is_const || symbol_table->FindSymbol(ast->ident)->symbol_type != SymbolType::Var) {
+    if (ast->type == 0) {
+      /// 载入变量，生成load指令
+      auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), val);
+      current_block->stmts.push_back(load_val);
+      /// 压入load的结果
+      current_value_stack.push(load_val);
+    } else {
+      ast->array_index->Accept(this);
+      auto index = current_value_stack.top();
+      current_value_stack.pop();
+      // 数组索引，生成get_elem_ptr指令
+      auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), val, index);
+      current_block->stmts.push_back(get_elem_ptr);
+      // 生成load指令
+      auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), get_elem_ptr);
+      current_block->stmts.push_back(load_val);
+      // 压入load的结果
+      current_value_stack.push(load_val);
+    }
   } else {
     /// 常量直接压入值
     current_value_stack.push(val);
@@ -754,19 +875,66 @@ void IRgenerator::Visit(VarDeclAST* ast) {
   // VarDef
   for (auto& item : *(ast->var_def_list)) {
     auto var_def = static_cast<VarDefAST*>(item.get());
-    // 生成alloc指令
-    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type);
-    current_block->stmts.push_back(alloc);
-    if (var_def->type == 1) {
-      // 初始化
-      var_def->var_exp->Accept(this);
-      // 为变量赋值，生成store指令
-      auto store = std::make_shared<Value_STORE>(current_value_stack.top(), alloc);
-      current_block->stmts.push_back(store);
-      current_value_stack.pop();
+    switch (var_def->type) {
+      case 0: {
+        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type);
+        current_block->stmts.push_back(alloc);
+        // 在符号表中插入变量
+        symbol_table->Insert(var_def->ident, alloc, SymbolType::Var, false, ast->elem_type);
+        break;
+      }
+      case 1: {
+        // 生成alloc指令
+        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type);
+        current_block->stmts.push_back(alloc);
+        // 初始化
+        var_def->var_exps->at(0)->Accept(this);
+        // 为变量赋值，生成store指令
+        auto store = std::make_shared<Value_STORE>(current_value_stack.top(), alloc);
+        current_block->stmts.push_back(store);
+        current_value_stack.pop();
+        // 在符号表中插入变量
+        symbol_table->Insert(var_def->ident, alloc, SymbolType::Var, false, ast->elem_type);
+        break;
+      }
+      case 2:
+      case 3: {
+        // 数组定义
+        ExpComputer computer(symbol_table.get());
+        // 1. 生成alloc指令
+        std::vector<int> dims;
+        int array_size = computer.Evaluate(var_def->array_size.get());
+        dims.push_back(array_size);
+        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type, dims);
+        current_block->stmts.push_back(alloc);
+        // 插入符号表
+        symbol_table->Insert(var_def->ident, alloc, SymbolType::Array, false, ast->elem_type);
+        // 2. 初始化数组 
+        for (int i = 0; i < var_def->var_exps->size(); i++) {
+          // int val = computer.Evaluate(var_def->var_exps->at(i).get());
+          var_def->var_exps->at(i)->Accept(this);
+          auto val = current_value_stack.top();
+          current_value_stack.pop();
+          auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
+          current_block->stmts.push_back(get_elem_ptr);
+          /// 为store指令赋值，生成store指令
+          auto store = std::make_shared<Value_STORE>(val, get_elem_ptr);
+          current_block->stmts.push_back(store);
+        }
+        for (int i = var_def->var_exps->size(); i < array_size; i++) {
+          int val = 0;
+          auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
+          current_block->stmts.push_back(get_elem_ptr);
+          /// 为store指令赋值，生成store指令
+          auto store = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(val), get_elem_ptr);
+          current_block->stmts.push_back(store);
+        }
+        break;
+      }
+      default:
+        assert(0);
+        break;
     }
-    // 在符号表中插入变量
-    symbol_table->Insert(var_def->ident, alloc, false, false, ast->elem_type);
   }
 }
 
@@ -791,7 +959,7 @@ void IRgenerator::Visit(FuncCallAST* ast) {
   // 2. 生成call指令
   // 查看函数的返回值类型，如果是void则不需要处理返回值
   auto func_symbol = symbol_table->FindSymbol(ast->ident);
-  if (func_symbol->type != "void") {
+  if (func_symbol->elem_type != "void") {
     // 有返回值：分配一个临时符号作为返回值名字
     auto ret_name = name_manager->AllocateTemp();
     auto call_val = std::make_shared<Value_Call>(ret_name, "@" + ast->ident, args);
@@ -931,13 +1099,18 @@ void IROutputer::Visit(Program* program) {
   for (auto& value : program->values) {
     value->Accept(this);
   }
+  fs << std::endl;
   for (auto& func : program->functions) {
     func->Accept(this);
   }
 }
 
 void IROutputer::Visit(Value_ALLOC* alloc) {
-  fs << "  " << alloc->name << " = alloc " << alloc->elem_type << std::endl;
+  if (alloc->dims.empty()) {
+    fs << "  " << alloc->name << " = alloc " << alloc->elem_type << std::endl;
+  } else {
+    fs << "  " << alloc->name << " = alloc [" << alloc->elem_type << ", " << alloc->dims[0] << "] " << std::endl;
+  }
 }
 
 void IROutputer::Visit(Value_LOAD* load) {
@@ -982,26 +1155,45 @@ void IROutputer::Visit(Value_Call* call) {
 }
 
 void IROutputer::Visit(Value_GLOBOL_ALLOC* glob_alloc) {
-  fs << "global " << glob_alloc->name << " = alloc i32, ";
-  if (glob_alloc->init) {
-    glob_alloc->init->Accept(this);
+  fs << "global " << glob_alloc->name << " = alloc ";
+  if (glob_alloc->init.size() == 1) {
+    fs << "i32, "<< glob_alloc->init[0]->name;
   } else {
-    fs << "0";
+    fs << "[i32, " << glob_alloc->init.size() << "], {";
+    for (size_t i = 0; i < glob_alloc->init.size(); ++i) {
+      fs << glob_alloc->init[i]->name;
+      if (i != glob_alloc->init.size() - 1) {
+        fs << ", ";
+      }
+    }
+    fs << "}";
   }
   fs << std::endl;
 }
 
-GlobalVarComputer::GlobalVarComputer(SymbolTable* symbol_table) 
+void IROutputer::Visit(Value_GET_ELEM_PTR* get_elem_ptr) {
+  fs << "  " << get_elem_ptr->name << " = getelemptr " << get_elem_ptr->base->name << ", " << get_elem_ptr->index->name << std::endl;
+}
+
+ExpComputer::ExpComputer(SymbolTable* symbol_table) 
   : val_stack(std::make_unique<std::stack<int>>()), symbol_table(symbol_table) {}
 
-GlobalVarComputer::~GlobalVarComputer() {}
+ExpComputer::~ExpComputer() {}
 
-void GlobalVarComputer::Visit(VarDeclAST* ast) {
+int ExpComputer::Evaluate(BaseAST* ast) {
+  int val = 0;
+  ast->Accept(this);
+  val = val_stack->top();
+  val_stack->pop();
+  return val;
+}
+
+void ExpComputer::Visit(VarDeclAST* ast) {
   for (auto& item : *(ast->var_def_list)) {
     auto var_def = static_cast<VarDefAST*>(item.get());
     int init_val = 0;
-    if (var_def->type == 1 && var_def->var_exp) {
-      var_def->var_exp->Accept(this);
+    if (var_def->type == 1 && var_def->var_exps->size() > 0) {
+      var_def->var_exps->at(0)->Accept(this);
       init_val = val_stack->top();
       val_stack->pop();
     }
@@ -1009,29 +1201,29 @@ void GlobalVarComputer::Visit(VarDeclAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(ConstDeclAST* ast) {
+void ExpComputer::Visit(ConstDeclAST* ast) {
   for (auto& item : *(ast->const_def_list)) {
     auto const_def = static_cast<ConstDefAST*>(item.get());
-    const_def->const_exp->Accept(this);
+    const_def->const_exps->at(0)->Accept(this);
     int val = val_stack->top();
     val_stack->pop();
     global_var_infos[const_def->ident] = {val, ast->elem_type, true};
   }
 }
 
-void GlobalVarComputer::Visit(ConstDefAST* ast) {
-  ast->const_exp->Accept(this);
+void ExpComputer::Visit(ConstDefAST* ast) {
+  ast->const_exps->at(0)->Accept(this);
 }
 
-void GlobalVarComputer::Visit(VarDefAST* ast) {
-  if (ast->type == 1 && ast->var_exp) {
-    ast->var_exp->Accept(this);
+void ExpComputer::Visit(VarDefAST* ast) {
+  if (ast->type == 1 && ast->var_exps->size() > 0) {
+    ast->var_exps->at(0)->Accept(this);
   } else {
     val_stack->push(0);
   }
 }
 
-void GlobalVarComputer::Visit(LValAST* ast) {
+void ExpComputer::Visit(LValAST* ast) {
   auto symbol = symbol_table->FindSymbol(ast->ident);
   if (symbol && symbol->is_const) {
     auto val = symbol->value;
@@ -1043,19 +1235,19 @@ void GlobalVarComputer::Visit(LValAST* ast) {
   val_stack->push(0);
 }
 
-void GlobalVarComputer::Visit(NumberAST* ast) {
+void ExpComputer::Visit(NumberAST* ast) {
   val_stack->push(ast->num);
 }
 
-void GlobalVarComputer::Visit(ExpAST* ast) {
+void ExpComputer::Visit(ExpAST* ast) {
   ast->l_or_exp->Accept(this);
 }
 
-void GlobalVarComputer::Visit(PrimaryExpAST* ast) {
+void ExpComputer::Visit(PrimaryExpAST* ast) {
   ast->mem->Accept(this);
 }
 
-void GlobalVarComputer::Visit(UnaryExpAST* ast) {
+void ExpComputer::Visit(UnaryExpAST* ast) {
   if (ast->type == 0) {
     auto& primary = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     primary->Accept(this);
@@ -1066,7 +1258,7 @@ void GlobalVarComputer::Visit(UnaryExpAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(UnaryOpAST* ast) {
+void ExpComputer::Visit(UnaryOpAST* ast) {
   int rhs = val_stack->top();
   val_stack->pop();
   switch (ast->op) {
@@ -1084,7 +1276,7 @@ void GlobalVarComputer::Visit(UnaryOpAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(AddExpAST* ast) {
+void ExpComputer::Visit(AddExpAST* ast) {
   if (ast->type == 0) {
     auto& mul = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     mul->Accept(this);
@@ -1096,7 +1288,7 @@ void GlobalVarComputer::Visit(AddExpAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(MulExpAST* ast) {
+void ExpComputer::Visit(MulExpAST* ast) {
   if (ast->type == 0) {
     auto& unary = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     unary->Accept(this);
@@ -1108,7 +1300,7 @@ void GlobalVarComputer::Visit(MulExpAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(RelExpAST* ast) {
+void ExpComputer::Visit(RelExpAST* ast) {
   if (ast->type == 0) {
     auto& rel = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     rel->Accept(this);
@@ -1120,7 +1312,7 @@ void GlobalVarComputer::Visit(RelExpAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(EqExpAST* ast) {
+void ExpComputer::Visit(EqExpAST* ast) {
   if (ast->type == 0) {
     auto& eq = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     eq->Accept(this);
@@ -1132,7 +1324,7 @@ void GlobalVarComputer::Visit(EqExpAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(LOrExpAST* ast) {
+void ExpComputer::Visit(LOrExpAST* ast) {
   if (ast->type == 0) {
     auto& l_or = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     l_or->Accept(this);
@@ -1148,7 +1340,7 @@ void GlobalVarComputer::Visit(LOrExpAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(LAndExpAST* ast) {
+void ExpComputer::Visit(LAndExpAST* ast) {
   if (ast->type == 0) {
     auto& l_and = std::get<std::unique_ptr<BaseAST>>(ast->mem);
     l_and->Accept(this);
@@ -1164,7 +1356,7 @@ void GlobalVarComputer::Visit(LAndExpAST* ast) {
   }
 }
 
-void GlobalVarComputer::Visit(BinaryOpAST* ast) {
+void ExpComputer::Visit(BinaryOpAST* ast) {
   int rhs = val_stack->top();
   val_stack->pop();
   int lhs = val_stack->top();
@@ -1210,7 +1402,7 @@ void GlobalVarComputer::Visit(BinaryOpAST* ast) {
   val_stack->push(result);
 }
 
-void GlobalVarComputer::Visit(LGBinaryOpAST* ast) {
+void ExpComputer::Visit(LGBinaryOpAST* ast) {
   int rhs = val_stack->top();
   val_stack->pop();
   int lhs = val_stack->top();
@@ -1229,20 +1421,20 @@ void GlobalVarComputer::Visit(LGBinaryOpAST* ast) {
   val_stack->push(result);
 }
 
-void GlobalVarComputer::Visit(StmtAST* ast) {}
+void ExpComputer::Visit(StmtAST* ast) {}
 
-void GlobalVarComputer::Visit(BlockItemAST* ast) {}
+void ExpComputer::Visit(BlockItemAST* ast) {}
 
-void GlobalVarComputer::Visit(NullAST* ast) {}
+void ExpComputer::Visit(NullAST* ast) {}
 
-void GlobalVarComputer::Visit(FuncCallAST* ast) {}
+void ExpComputer::Visit(FuncCallAST* ast) {}
 
-void GlobalVarComputer::Visit(OpAST* ast) {}
+void ExpComputer::Visit(OpAST* ast) {}
 
-void GlobalVarComputer::Visit(CompUnitAST* ast) {}
+void ExpComputer::Visit(CompUnitAST* ast) {}
 
-void GlobalVarComputer::Visit(FuncTypeAST* ast) {}
+void ExpComputer::Visit(FuncTypeAST* ast) {}
 
-void GlobalVarComputer::Visit(FuncDefAST* ast) {}
+void ExpComputer::Visit(FuncDefAST* ast) {}
 
-void GlobalVarComputer::Visit(BlockAST* ast) {}
+void ExpComputer::Visit(BlockAST* ast) {}

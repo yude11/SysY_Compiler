@@ -41,24 +41,39 @@ class Value_ALLOC : public Value {
 public:
     Value_ALLOC(std::string name, std::string elem_type)
         : Value(name, Value_Type::KOOPA_RVT_ALLOC), elem_type(elem_type) {}
+    Value_ALLOC(std::string name, std::string elem_type, std::vector<int> dims)
+        : Value(name, Value_Type::KOOPA_RVT_ALLOC), elem_type(elem_type), dims(dims) {}
     
     void Accept(IRVisitor* visitor) override {
         visitor->Visit(this);
     }
-    
     std::string elem_type;  // "i32", "i32*", 等
+    std::vector<int> dims; // 数组的维度
 };
 
 class Value_GLOBOL_ALLOC : public Value {
 public:
-    Value_GLOBOL_ALLOC(std::string name, std::shared_ptr<Value> init)
+    Value_GLOBOL_ALLOC(std::string name, std::vector<std::shared_ptr<Value>> init)
         : Value(name, Value_Type::KOOPA_RVT_GLOBAL_ALLOC), init(init) {}
     
     void Accept(IRVisitor* visitor) override {
         visitor->Visit(this);
     }
     
-    std::shared_ptr<Value> init;
+    std::vector<std::shared_ptr<Value>> init;
+};
+
+class Value_GET_ELEM_PTR : public Value {
+  public:
+    Value_GET_ELEM_PTR(std::string name, std::shared_ptr<Value> base, std::shared_ptr<Value> index)
+        : Value(name, Value_Type::KOOPA_RVT_GET_ELEM_PTR), base(base), index(index) {}
+
+    void Accept(IRVisitor* visitor) override {
+        visitor->Visit(this);
+    }
+
+    std::shared_ptr<Value> base;  // 数组的基地址
+    std::shared_ptr<Value> index;  // 索引值
 };
 
 // 内存加载指令

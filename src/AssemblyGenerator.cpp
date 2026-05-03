@@ -27,7 +27,7 @@ std::string AssemblyGenerator::GetValueReg(Value* val) {
       return reg_allocator->value_to_reg_a[val];
     case 2: {  // 在栈中，分配新寄存器并加载
       auto reg = reg_allocator->Alloc(val);
-      fs << " lw    " << reg << ", " << reg_allocator->GetLoc(val) << "(sp)" << std::endl;
+      LoadWord(reg, reg_allocator->GetLoc(val));
       return reg;
     }
     case 3: {  // 全局变量，分配新寄存器并加载值
@@ -57,7 +57,7 @@ void AssemblyGenerator::LoadValueToReg(Value* val, const std::string& target_reg
       fs << " mv    " << target_reg << ", " << reg_allocator->value_to_reg_a[val] << std::endl;
       break;
     case 2:  // 在栈中
-      fs << " lw    " << target_reg << ", " << reg_allocator->GetLoc(val) << "(sp)" << std::endl;
+      LoadWord(target_reg, reg_allocator->GetLoc(val));
       break;
     case 3:  // 全局变量
       fs << " la    " << target_reg << ", " << reg_allocator->global_to_label[val] << std::endl;
@@ -67,6 +67,63 @@ void AssemblyGenerator::LoadValueToReg(Value* val, const std::string& target_reg
       assert(0 && "error: unknown where_is_value");
       break;
   }
+}
+
+void AssemblyGenerator::GetStackAddr(int offset, const std::string& reg) {
+  if (IsValidOffset(offset)) {
+    fs << " addi  " << reg << ", sp, " << offset << std::endl;
+  } else {
+    fs << " li    " << reg << ", " << offset << std::endl;
+    fs << " add   " << reg << ", sp, " << reg << std::endl;
+  }
+}
+
+void AssemblyGenerator::StoreWord(const std::string& src_reg, int offset) {
+  if (IsValidOffset(offset)) {
+    fs << " sw    " << src_reg << ", " << offset << "(sp)" << std::endl;
+  } else {
+    auto temp = std::make_shared<Value_INTEGER>(0);
+    auto addr_reg = reg_allocator->Alloc(temp.get());
+    GetStackAddr(offset, addr_reg);
+    fs << " sw    " << src_reg << ", 0(" << addr_reg << ")" << std::endl;
+  }
+}
+
+void AssemblyGenerator::LoadWord(const std::string& dst_reg, int offset) {
+  if (IsValidOffset(offset)) {
+    fs << " lw    " << dst_reg << ", " << offset << "(sp)" << std::endl;
+  } else {
+    auto temp = std::make_shared<Value_INTEGER>(0);
+    auto addr_reg = reg_allocator->Alloc(temp.get());
+    GetStackAddr(offset, addr_reg);
+    fs << " lw    " << dst_reg << ", 0(" << addr_reg << ")" << std::endl;
+  }
+}
+
+std::string AssemblyGenerator::GetValueAddr(Value* val) {
+  std::string addr_reg = reg_allocator->Alloc(val);
+  
+  auto pos = reg_allocator->GetWhereIsValue(val);
+  switch (pos) {
+    case 0:  // 在临时寄存器 t 中
+      fs << " mv    " << addr_reg << ", " << reg_allocator->value_to_reg_t[val] << std::endl;
+      break;
+    case 1:  // 在参数寄存器 a 中
+      fs << " mv    " << addr_reg << ", " << reg_allocator->value_to_reg_a[val] << std::endl;
+      break;
+    case 2:  // 在栈中
+      if (val->type == Value_Type::KOOPA_RVT_ALLOC) {
+        GetStackAddr(reg_allocator->GetLoc(val), addr_reg);
+      } else {
+        LoadWord(addr_reg, reg_allocator->GetLoc(val));
+      }
+      break;
+    case 3:  // 全局变量
+      fs << " la    " << addr_reg << ", " << reg_allocator->global_to_label[val] << std::endl;
+      break;
+  }
+  
+  return addr_reg;
 }
 
 void AssemblyGenerator::Visit(Program *program) {
@@ -92,9 +149,14 @@ void AssemblyGenerator::Visit(Function *func) {
   fs << func->name << ":" << std::endl;
   bool has_call = reg_allocator->Scan(func);
   if (reg_allocator->stack_offset != 0) {
-    fs << " addi  sp, sp, -" << reg_allocator->stack_offset << std::endl;
+    if (IsValidOffset(-reg_allocator->stack_offset)) {
+      fs << " addi  sp, sp, -" << reg_allocator->stack_offset << std::endl;
+    } else {
+      fs << " li    t0, -" << reg_allocator->stack_offset << std::endl;
+      fs << " add   sp, sp, t0" << std::endl;
+    }
     if (has_call) {
-      fs << " sw    ra, " << (reg_allocator->stack_offset - 4) << "(sp)" << std::endl;
+      StoreWord("ra", reg_allocator->stack_offset - 4);
     }
     // 将参数存入栈中
     for (size_t i = 0; i < func->params.size() && i < 8; i++) {
@@ -139,11 +201,16 @@ void AssemblyGenerator::Visit(Value_RETURN *return_val) {
   LOG("Value_RETURN");
   // 检查是否需要恢复ra寄存器
   if (reg_allocator->ra_used) {
-    fs << " lw    ra, " << (reg_allocator->stack_offset - 4) << "(sp)" << std::endl;
+    LoadWord("ra", reg_allocator->stack_offset - 4);
   }
   if (return_val->val == nullptr) {
     if (reg_allocator->stack_offset != 0) {
-      fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
+      if (IsValidOffset(reg_allocator->stack_offset)) {
+        fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
+      } else {
+        fs << " li    t0, " << reg_allocator->stack_offset << std::endl;
+        fs << " add   sp, sp, t0" << std::endl;
+      }
     }
     fs << " ret" << std::endl;
     return;
@@ -154,7 +221,12 @@ void AssemblyGenerator::Visit(Value_RETURN *return_val) {
   }
   reg_allocator->ClearTempRegs();
   if (reg_allocator->stack_offset != 0) {
-    fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
+    if (IsValidOffset(reg_allocator->stack_offset)) {
+      fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
+    } else {
+      fs << " li    t0, " << reg_allocator->stack_offset << std::endl;
+      fs << " add   sp, sp, t0" << std::endl;
+    }
   }
   fs << " ret" << std::endl;
 }
@@ -215,7 +287,7 @@ void AssemblyGenerator::Visit(Value_BINARY *binary) {
     default:
       break;
   }
-  fs << " sw    " << res << ", " << offset << "(sp)" << std::endl;
+  StoreWord(res, offset);
   reg_allocator->ClearTempRegs();
 }
 
@@ -250,10 +322,14 @@ void AssemblyGenerator::Visit(Value_INTEGER *integer) {
 void AssemblyGenerator::Visit(Value_LOAD *load) {
   LOG("Value_LOAD");
   
-  auto r = GetValueReg(load->src.get());
   int offset = reg_allocator->GetLoc(load);
-  fs << " sw    " << r << ", " << offset << "(sp)" << std::endl;
+  auto temp_val = std::make_shared<Value_INTEGER>(0);
+  auto result_reg = reg_allocator->Alloc(temp_val.get());
   
+  auto src_addr = GetValueAddr(load->src.get());
+  fs << " lw    " << result_reg << ", 0(" << src_addr << ")" << std::endl;
+  
+  StoreWord(result_reg, offset);
   reg_allocator->ClearTempRegs();
 }
 
@@ -261,20 +337,8 @@ void AssemblyGenerator::Visit(Value_STORE *store) {
   LOG("Value_STORE");
   
   auto r = GetValueReg(store->value.get());
-  
-  if (store->dst->type != Value_Type::KOOPA_RVT_INTEGER) {
-    auto pos = reg_allocator->GetWhereIsValue(store->dst.get());
-    if (pos == 3) {
-      auto dst_reg = reg_allocator->Alloc(store->dst.get());
-      fs << " la    " << dst_reg << ", " << reg_allocator->global_to_label[store->dst.get()] << std::endl;
-      fs << " sw    " << r << ", 0(" << dst_reg << ")" << std::endl;
-      reg_allocator->ClearTempRegs();
-      return;
-    }
-  }
-  
-  int offset = reg_allocator->GetLoc(store->dst.get());
-  fs << " sw    " << r << ", " << offset << "(sp)" << std::endl;
+  auto dst_addr = GetValueAddr(store->dst.get());
+  fs << " sw    " << r << ", 0(" << dst_addr << ")" << std::endl;
 
   reg_allocator->ClearTempRegs();
 }
@@ -302,13 +366,13 @@ void AssemblyGenerator::Visit(Value_Call *call) {
   }
   for (int i = 8; i < call->args.size(); i++) {
     auto r = GetValueReg(call->args[i].get());
-    fs << " sw    " << r << ", " << reg_allocator->param_offset + 4 * (i - 8) << "(sp)" << std::endl;
+    StoreWord(r, reg_allocator->param_offset + 4 * (i - 8));
     reg_allocator->ClearTempRegs();
   }
   fs << " call " << call->ident.substr(1) << std::endl;
   reg_allocator->ClearTempRegs();
   if (call->name != "null") {
-    fs << " sw    a0, " << reg_allocator->GetLoc(call) << "(sp)" << std::endl;
+    StoreWord("a0", reg_allocator->GetLoc(call));
   }
 }
 
@@ -317,5 +381,21 @@ void AssemblyGenerator::Visit(Value_GLOBOL_ALLOC* glob_alloc) {
   reg_allocator->AllocGlobal(glob_alloc);
   fs << " .globl " << glob_alloc->name.substr(1) << std::endl;
   fs << glob_alloc->name.substr(1) << ":" << std::endl;
-  fs << " .word " << glob_alloc->init->name << std::endl;
+  for (auto& init : glob_alloc->init) {
+    fs << " .word " << init->name << std::endl;
+  }
+}
+
+void AssemblyGenerator::Visit(Value_GET_ELEM_PTR* get_elem_ptr) {
+  LOG("Value_GET_ELEM_PTR");
+  
+  auto base_reg = GetValueAddr(get_elem_ptr->base.get());
+  auto index = GetValueReg(get_elem_ptr->index.get());
+  auto temp_size = std::make_shared<Value_INTEGER>(0);
+  auto size_reg = reg_allocator->Alloc(temp_size.get());
+  fs << " li    " << size_reg << ", 4" << std::endl;
+  fs << " mul   " << size_reg << ", " << size_reg << ", " << index << std::endl;
+  fs << " add   " << base_reg << ", " << base_reg << ", " << size_reg << std::endl;
+  StoreWord(base_reg, reg_allocator->GetLoc(get_elem_ptr));
+  reg_allocator->ClearTempRegs();
 }

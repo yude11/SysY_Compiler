@@ -20,7 +20,7 @@ public:
   // typedef std::variant<std::string, int> Location; 
   // 值到寄存器的映射
   std::unordered_map<Value*, std::string> value_to_reg_t;
-  std::unordered_map<Value*, std::string> value_to_reg_a;
+  std::unordered_map<Value*, std::string> value_to_reg_a; // 存储函数参数和返回值
   // 值到栈偏移的映射
   std::unordered_map<Value*, int> value_to_loc;
   // 全局变量到标签的映射
@@ -58,6 +58,7 @@ public:
     std::string reg = free_regs.top();
     free_regs.pop();
     value_to_reg_t[value] = reg;
+    where_is_value[value] = 0;  // 标记为在寄存器 t 中
     return reg;
   }
 
@@ -124,6 +125,10 @@ public:
     return -1;  // 未找到
   }
 
+  std::string GetLabel(Value* value) {
+    return global_to_label[value];
+  }
+
   bool Scan(Function* func) {
     // 1. 如果函数传参的数量大于8，额外的参数也需要分配栈空间
     int max_params = -1;
@@ -150,9 +155,24 @@ public:
       auto block = func->blocks[i].get();
       for (auto stmt : block->stmts) {
         switch (stmt->type) {
-          case Value_Type::KOOPA_RVT_ALLOC:
+          case Value_Type::KOOPA_RVT_ALLOC: {
+            value_to_loc[stmt.get()] = stack_offset;
+            where_is_value[stmt.get()] = 2;  // 标记为在栈中
+            auto alloc = static_cast<Value_ALLOC*>(stmt.get());
+            if (alloc->dims.empty()) {
+              stack_offset += 4;  // 单个变量
+            } else {
+              int size = 1;
+              for (int dim : alloc->dims) {
+                size *= dim;
+              }
+              stack_offset += size * 4;  // 数组
+            }
+            break;
+          }
           case Value_Type::KOOPA_RVT_LOAD:
           case Value_Type::KOOPA_RVT_BINARY:
+          case Value_Type::KOOPA_RVT_GET_ELEM_PTR:
           value_to_loc[stmt.get()] = stack_offset;
           where_is_value[stmt.get()] = 2;  // 标记为在栈中
           stack_offset+=4;
@@ -250,6 +270,7 @@ class AssemblyGenerator : public IRVisitor {
     void Visit(Value_BINARY* binary) override;
     void Visit(Value_ALLOC* alloc) override;
     void Visit(Value_GLOBOL_ALLOC* glob_alloc) override;
+    void Visit(Value_GET_ELEM_PTR* get_elem_ptr) override;
     void Visit(Value_LOAD* load) override;
     void Visit(Value_Call* call) override;
     void Visit(Value_STORE* store) override;
@@ -265,6 +286,27 @@ class AssemblyGenerator : public IRVisitor {
     std::string GetValueReg(Value* val);
     // 将值加载到指定寄存器（用于函数调用参数等场景）
     void LoadValueToReg(Value* val, const std::string& target_reg);
+    
+    // 获取值的地址到寄存器，返回寄存器名
+    // 1. 局部变量: 计算 sp + offset 得到地址
+    // 2. 全局变量: 使用 la 加载标签地址
+    // 3. getelemptr 结果: 从栈中加载已计算的地址
+    // 4. 函数参数引用: 从栈或寄存器获取地址
+    std::string GetValueAddr(Value* val);
+    
+    // 检查偏移量是否在有效范围内 (-2048 到 2047)
+    bool IsValidOffset(int offset) {
+      return offset >= -2048 && offset <= 2047;
+    }
+    
+    // 计算栈地址 sp + offset 到指定寄存器
+    void GetStackAddr(int offset, const std::string& reg);
+    
+    // 生成 sw 指令，处理大偏移量
+    void StoreWord(const std::string& src_reg, int offset);
+    
+    // 生成 lw 指令，处理大偏移量
+    void LoadWord(const std::string& dst_reg, int offset);
 
     std::fstream fs;
     std::unique_ptr<RegAllocator> reg_allocator;

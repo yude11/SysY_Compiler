@@ -157,13 +157,16 @@ class VarDefAST : public BaseAST {
     void Dump() const override {
       std::cout << "VarDefAST { ";
       // std::cout << ident << " = ";
-      var_exp->Dump();
+      // for (auto& var_exp : *var_exps) {
+      //   var_exp->Dump();
+      // }
       std::cout << " }";
     }
 
     int type = -1;
     std::string ident;
-    std::unique_ptr<BaseAST> var_exp;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> var_exps;
+    std::unique_ptr<BaseAST> array_size;
 };
 
 
@@ -199,12 +202,14 @@ class ConstDefAST : public BaseAST {
     void Dump() const override {
       std::cout << "ConstDefAST { ";
       // std::cout << ident << " = ";
-      const_exp->Dump();
+      // const_exp->Dump();
       std::cout << " }";
     }
-
+    
+    int type = -1;
     std::string ident;
-    std::unique_ptr<BaseAST> const_exp;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> const_exps;
+    std::unique_ptr<BaseAST> array_size;
 };
 
 class NumberAST : public BaseAST {
@@ -232,7 +237,9 @@ class LValAST : public BaseAST {
       std::cout << " }";
     }
 
+    int type = -1;
     std::string ident;
+    std::unique_ptr<BaseAST> array_index;
 };
 
 class StmtAST : public BaseAST {

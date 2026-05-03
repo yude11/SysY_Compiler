@@ -4,25 +4,41 @@
 
 #include "IR.h"
 
+enum class SymbolType {
+  Var,
+  Func,
+  Array,
+};
+
 class Symbol {
   public:
-    Symbol(std::string name, std::shared_ptr<Value> value, bool is_function, bool is_const, std::string type)
-      : name(name), value(value), is_function(is_function), is_const(is_const), type(type) {}
+    Symbol(std::string name, std::shared_ptr<Value> value, SymbolType symbol_type, bool is_const, std::string elem_type)
+      : name(name), value(value), symbol_type(symbol_type), is_const(is_const), elem_type(elem_type) {}
     std::string name; // 标识符
     std::shared_ptr<Value> value; // 表示存储位置
-    bool is_function;
+    SymbolType symbol_type;
     bool is_const;
-    std::string type;
+    std::string elem_type;
     
     int level; // 作用域级别
   };
   
-  class SymbolFunc : public Symbol {
-    public:
-      SymbolFunc(std::string name, std::shared_ptr<Value> value, bool is_function, bool is_const, std::string type)
-        : Symbol(name, value, is_function, is_const, type) {}
-      std::vector<std::string> args_type;
+class SymbolFunc : public Symbol {
+  public:
+    SymbolFunc(std::string name, std::shared_ptr<Value> value, SymbolType symbol_type, bool is_const, std::string type)
+      : Symbol(name, value, symbol_type, is_const, type) {}
+    std::vector<std::string> args_type;
 };
+
+class SymbolArray : public Symbol {
+  public:
+    SymbolArray(std::string name, std::shared_ptr<Value> value, SymbolType symbol_type, bool is_const, std::string elem_type)
+      : Symbol(name, value, symbol_type, is_const, elem_type) {}
+    std::vector<int> dims;
+};
+
+
+
 
 // 作用域
 class Scope {
@@ -48,12 +64,14 @@ class Scope {
       return table.find(name) != table.end();
     }
 
-    void Insert(const std::string& name, const std::shared_ptr<Value>& value, bool is_function, bool is_const, std::string type) {
-      if (is_function) {
-        table[name] = std::make_unique<SymbolFunc>(name, value, is_function, is_const, type);
+    void Insert(const std::string& name, const std::shared_ptr<Value>& value, SymbolType symbol_type, bool is_const, std::string elem_type) {
+      if (symbol_type == SymbolType::Func) {
+        table[name] = std::make_unique<SymbolFunc>(name, value, symbol_type, is_const, elem_type);
         return;
+      } else if (symbol_type == SymbolType::Array) {
+        table[name] = std::make_unique<SymbolArray>(name, value, symbol_type, is_const, elem_type);
       } else {
-        table[name] = std::make_unique<Symbol>(name, value, is_function, is_const, type);
+        table[name] = std::make_unique<Symbol>(name, value, symbol_type, is_const, elem_type);
       }
     }
 
@@ -105,8 +123,8 @@ class SymbolTable {
 
     // 插入符号到当前作用域
     void Insert(const std::string& name, const std::shared_ptr<Value>& value, 
-                                bool is_function, bool is_const, std::string type) {
-      scopes[current_scope_level]->Insert(name, value, is_function, is_const, type);
+                                SymbolType symbol_type, bool is_const, std::string elem_type) {
+      scopes[current_scope_level]->Insert(name, value, symbol_type, is_const, elem_type);
     }
 
     // 删除当前作用域中该符号
@@ -127,13 +145,14 @@ class SymbolTable {
     void PrintTable() {
       std::cout << "Scope " << current_scope_level << std::endl;
       for (auto& [name, symbol] : scopes[current_scope_level]->table) {
-        if (symbol->is_function) {
-          auto func_symbol = std::dynamic_pointer_cast<SymbolFunc>(symbol->value);
+        if (symbol->symbol_type == SymbolType::Func) {
           std::cout << "func : "<< name << std::endl; 
           // << " " << symbol->value->name << " " << symbol->is_function << " " << symbol->is_const << " " << symbol->type << " " << func_symbol->args_type.size() << std::endl;
-        } else {
+        } else if (symbol->symbol_type == SymbolType::Var) {
           std::cout << "var : "<< name << std::endl;
           // << " " << symbol->value->name << " " << symbol->is_function << " " << symbol->is_const << " " << symbol->type << std::endl;
+        } else {
+          std::cout << "array : "<< name << std::endl;
         }
       }
     }
