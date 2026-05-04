@@ -17,14 +17,15 @@
 // 寄存器分配器
 class RegAllocator {
 public:
-  // typedef std::variant<std::string, int> Location; 
+  // 寄存器到值的映射
+  // std::unordered_map<std::string, Value*> reg_to_value;
   // 值到寄存器的映射
   std::unordered_map<Value*, std::string> value_to_reg_t;
   std::unordered_map<Value*, std::string> value_to_reg_a; // 存储函数参数和返回值
   // 值到栈偏移的映射
-  std::unordered_map<Value*, int> value_to_loc;
+  std::unordered_map<Value*, int> value_to_stack;
   // 全局变量到标签的映射
-  std::unordered_map<Value*, std::string> global_to_label;
+  std::unordered_map<Value*, std::string> global_value_to_label;
   std::unordered_map<Value*, int> where_is_value; // 0: 寄存器t, 1: 寄存器a, 2: 栈, 3: 全局变量
 
   // 可用临时寄存器栈
@@ -58,10 +59,12 @@ public:
     std::string reg = free_regs.top();
     free_regs.pop();
     value_to_reg_t[value] = reg;
-    where_is_value[value] = 0;  // 标记为在寄存器 t 中
     return reg;
   }
 
+  // 为函数参数分配寄存器
+  // 如果参数寄存器栈为空，溢出到栈
+  // 如果参数寄存器栈不为空，分配参数寄存器
   std::string AllocParams(Value* arg) {
     auto r = Lookup(arg);
     if (r != "") {
@@ -72,7 +75,7 @@ public:
       LOG("No more parameter registers available, spilling to stack");
       int offset = param_offset;
       param_offset += 4;
-      value_to_loc[arg] = offset;
+      value_to_stack[arg] = offset;
       where_is_value[arg] = 2;  // 标记为在栈中
       return std::to_string(offset) + "(sp)";
     } else {
@@ -85,7 +88,7 @@ public:
   }
 
   void AllocGlobal(Value* glob_alloc) {
-    global_to_label[glob_alloc] = glob_alloc->name.substr(1);
+    global_value_to_label[glob_alloc] = glob_alloc->name.substr(1);
     where_is_value[glob_alloc] = 3;
   }
 
@@ -109,8 +112,8 @@ public:
   }
 
   int GetLoc(Value* value) {
-    auto it = value_to_loc.find(value);
-    if (it != value_to_loc.end()) {
+    auto it = value_to_stack.find(value);
+    if (it != value_to_stack.end()) {
       return it->second;
     }
     assert(0 && "error: value not found in stack");
@@ -126,7 +129,7 @@ public:
   }
 
   std::string GetLabel(Value* value) {
-    return global_to_label[value];
+    return global_value_to_label[value];
   }
 
   bool Scan(Function* func) {
@@ -153,10 +156,11 @@ public:
     // 2. 扫描函数体，统计需要分配寄存器的值的数量，计算总的栈空间需求
     for (int i = 0; i < func->blocks.size(); i++) {
       auto block = func->blocks[i].get();
-      for (auto stmt : block->stmts) {
+      for (auto& stmt : block->stmts) {
         switch (stmt->type) {
           case Value_Type::KOOPA_RVT_ALLOC: {
-            value_to_loc[stmt.get()] = stack_offset;
+            LOG("Alloc");
+            value_to_stack[stmt.get()] = stack_offset;
             where_is_value[stmt.get()] = 2;  // 标记为在栈中
             auto alloc = static_cast<Value_ALLOC*>(stmt.get());
             if (alloc->dims.empty()) {
@@ -171,16 +175,17 @@ public:
             break;
           }
           case Value_Type::KOOPA_RVT_LOAD:
+            LOG("Load");
           case Value_Type::KOOPA_RVT_BINARY:
           case Value_Type::KOOPA_RVT_GET_ELEM_PTR:
-          value_to_loc[stmt.get()] = stack_offset;
+          value_to_stack[stmt.get()] = stack_offset;
           where_is_value[stmt.get()] = 2;  // 标记为在栈中
           stack_offset+=4;
           break;
           case Value_Type::KOOPA_RVT_CALL: {
             auto call = static_cast<Value_Call*>(stmt.get());
             if (call->name != "null") {
-              value_to_loc[stmt.get()] = stack_offset;
+              value_to_stack[stmt.get()] = stack_offset;
               where_is_value[stmt.get()] = 2;  // 标记为在栈中
               stack_offset+=4;
             }
@@ -229,7 +234,7 @@ public:
   void ResetForNewFunction() {
     ClearTempRegs();
     value_to_reg_a.clear();
-    value_to_loc.clear();
+    value_to_stack.clear();
     for (auto it = where_is_value.begin(); it != where_is_value.end(); ) {
       if (it->second != 3) {
         it = where_is_value.erase(it);
@@ -284,10 +289,10 @@ class AssemblyGenerator : public IRVisitor {
 
     // 获取值所在的寄存器，如果不在寄存器中则分配新寄存器并加载，返回寄存器名
     std::string GetValueReg(Value* val);
-    // 将值加载到指定寄存器（用于函数调用参数等场景）
+    // 将值加载到*指定*寄存器（用于函数调用参数等场景）
     void LoadValueToReg(Value* val, const std::string& target_reg);
     
-    // 获取值的地址到寄存器，返回寄存器名
+    // 获取符号的地址并返回
     // 1. 局部变量: 计算 sp + offset 得到地址
     // 2. 全局变量: 使用 la 加载标签地址
     // 3. getelemptr 结果: 从栈中加载已计算的地址
@@ -299,13 +304,13 @@ class AssemblyGenerator : public IRVisitor {
       return offset >= -2048 && offset <= 2047;
     }
     
-    // 计算栈地址 sp + offset 到指定寄存器
+    // 计算栈地址 sp + offset 到指定寄存器，最后存储地址到 reg 中
     void GetStackAddr(int offset, const std::string& reg);
     
-    // 生成 sw 指令，处理大偏移量
+    // 将寄存器中的值存储到栈中，生成 sw 指令，处理大偏移量
     void StoreWord(const std::string& src_reg, int offset);
     
-    // 生成 lw 指令，处理大偏移量
+    // 将值从栈中加载到指定寄存器，生成 lw 指令，处理大偏移量
     void LoadWord(const std::string& dst_reg, int offset);
 
     std::fstream fs;

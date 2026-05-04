@@ -32,7 +32,7 @@ std::string AssemblyGenerator::GetValueReg(Value* val) {
     }
     case 3: {  // 全局变量，分配新寄存器并加载值
       auto reg = reg_allocator->Alloc(val);
-      fs << " la    " << reg << ", " << reg_allocator->global_to_label[val] << std::endl;
+      fs << " la    " << reg << ", " << reg_allocator->global_value_to_label[val] << std::endl;
       fs << " lw    " << reg << ", 0(" << reg << ")" << std::endl;
       return reg;
     }
@@ -60,7 +60,7 @@ void AssemblyGenerator::LoadValueToReg(Value* val, const std::string& target_reg
       LoadWord(target_reg, reg_allocator->GetLoc(val));
       break;
     case 3:  // 全局变量
-      fs << " la    " << target_reg << ", " << reg_allocator->global_to_label[val] << std::endl;
+      fs << " la    " << target_reg << ", " << reg_allocator->global_value_to_label[val] << std::endl;
       fs << " lw    " << target_reg << ", 0(" << target_reg << ")" << std::endl;
       break;
     default:
@@ -101,26 +101,42 @@ void AssemblyGenerator::LoadWord(const std::string& dst_reg, int offset) {
 }
 
 std::string AssemblyGenerator::GetValueAddr(Value* val) {
-  std::string addr_reg = reg_allocator->Alloc(val);
-  
+  std::string addr_reg;
   auto pos = reg_allocator->GetWhereIsValue(val);
   switch (pos) {
-    case 0:  // 在临时寄存器 t 中
+    case 0: {
+      // 在临时寄存器 t 中
+      addr_reg = reg_allocator->Alloc(val);
       fs << " mv    " << addr_reg << ", " << reg_allocator->value_to_reg_t[val] << std::endl;
       break;
-    case 1:  // 在参数寄存器 a 中
+    }
+    case 1: {
+      // 在参数寄存器 a 中
+      addr_reg = reg_allocator->Alloc(val);
       fs << " mv    " << addr_reg << ", " << reg_allocator->value_to_reg_a[val] << std::endl;
       break;
-    case 2:  // 在栈中
+    }
+    case 2: {
+      // 在栈中
+      addr_reg = reg_allocator->Alloc(val);
       if (val->type == Value_Type::KOOPA_RVT_ALLOC) {
+        // 对于alloc变量，它的地址是栈加上偏移量
         GetStackAddr(reg_allocator->GetLoc(val), addr_reg);
-      } else {
+      } else if (val->type == Value_Type::KOOPA_RVT_GET_ELEM_PTR) {
+        // 对于getelemptr结果，它所代表的地址是它本身的值
         LoadWord(addr_reg, reg_allocator->GetLoc(val));
       }
       break;
-    case 3:  // 全局变量
-      fs << " la    " << addr_reg << ", " << reg_allocator->global_to_label[val] << std::endl;
+    }
+    case 3: {
+      // 全局变量
+      addr_reg = reg_allocator->Alloc(val);
+      fs << " la    " << addr_reg << ", " << reg_allocator->global_value_to_label[val] << std::endl;
       break;
+    }
+    default:
+      assert(0 && "error: unknown where_is_value");
+      return "";
   }
   
   return addr_reg;
@@ -147,25 +163,27 @@ void AssemblyGenerator::Visit(Function *func) {
   fs << " .global " << func->name << std::endl;
   // 访问函数体基本块
   fs << func->name << ":" << std::endl;
+  // 扫描函数体语句，分配栈空间
   bool has_call = reg_allocator->Scan(func);
   if (reg_allocator->stack_offset != 0) {
     if (IsValidOffset(-reg_allocator->stack_offset)) {
-      fs << " addi  sp, sp, -" << reg_allocator->stack_offset << std::endl;
+      fs << " addi  sp, sp, " << -reg_allocator->stack_offset << std::endl;
     } else {
-      fs << " li    t0, -" << reg_allocator->stack_offset << std::endl;
-      fs << " add   sp, sp, t0" << std::endl;
+      auto temp = std::make_shared<Value_INTEGER>(0);
+      std::string offset_reg = reg_allocator->Alloc(temp.get());
+      fs << " li    " << offset_reg << ", " << -reg_allocator->stack_offset << std::endl;
+      fs << " add   sp, sp, " << offset_reg << std::endl;
     }
     if (has_call) {
       StoreWord("ra", reg_allocator->stack_offset - 4);
     }
-    // 将参数存入栈中
+    // 将参数存入参数寄存器和栈中
     for (size_t i = 0; i < func->params.size() && i < 8; i++) {
-      auto r = "a" + std::to_string(i);
       auto param = func->params[i].get();
       reg_allocator->AllocParams(param);
     }
     for (size_t i = 8; i < func->params.size(); i++) {
-      reg_allocator->value_to_loc[func->params[i].get()] = reg_allocator->stack_offset + (i - 8) * 4;
+      reg_allocator->value_to_stack[func->params[i].get()] = reg_allocator->stack_offset + (i - 8) * 4;
       reg_allocator->where_is_value[func->params[i].get()] = 2;  // 标记为在栈中
     }
     reg_allocator->ClearTempRegs();
@@ -183,7 +201,6 @@ void AssemblyGenerator::Visit(Function_Decl *func_decl) {
 
 void AssemblyGenerator::Visit(BasicBlock *block) {
   LOG("BasicBlock");
-  // 扫描基本块体语句，分配栈空间
   // 访问基本块体语句
   if (block->name != "entry") {
     fs << block->name << ":" << std::endl;
@@ -203,31 +220,14 @@ void AssemblyGenerator::Visit(Value_RETURN *return_val) {
   if (reg_allocator->ra_used) {
     LoadWord("ra", reg_allocator->stack_offset - 4);
   }
+  // 处理返回值
   if (return_val->val == nullptr) {
-    if (reg_allocator->stack_offset != 0) {
-      if (IsValidOffset(reg_allocator->stack_offset)) {
-        fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
-      } else {
-        fs << " li    t0, " << reg_allocator->stack_offset << std::endl;
-        fs << " add   sp, sp, t0" << std::endl;
-      }
-    }
     fs << " ret" << std::endl;
     return;
   }
-  auto reg = GetValueReg(return_val->val.get());
-  if (reg != "a0") {
-    fs << " mv    a0, " << reg << std::endl;
-  }
+  // 处理返回值寄存器, 返回值要存到寄存器a0
+  LoadValueToReg(return_val->val.get(), "a0");
   reg_allocator->ClearTempRegs();
-  if (reg_allocator->stack_offset != 0) {
-    if (IsValidOffset(reg_allocator->stack_offset)) {
-      fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
-    } else {
-      fs << " li    t0, " << reg_allocator->stack_offset << std::endl;
-      fs << " add   sp, sp, t0" << std::endl;
-    }
-  }
   fs << " ret" << std::endl;
 }
 
@@ -299,11 +299,6 @@ void AssemblyGenerator::Visit(Value_FUNC_ARG_REF *ref) {
 void AssemblyGenerator::Visit(Value_ALLOC *alloc) {
   LOG("Value_ALLOC");
   // 访问分配指令
-  // 1. 从栈中加载栈的偏移
-  int offset = reg_allocator->GetLoc(alloc);
-  // 2. 分配寄存器，将对应偏移加载到寄存器中
-  auto r = reg_allocator->Alloc(alloc);
-  fs << " lw    " << r << ", " << offset << "(sp)" << std::endl;
 }
 
 void AssemblyGenerator::Visit(Value_INTEGER *integer) {
@@ -320,12 +315,13 @@ void AssemblyGenerator::Visit(Value_INTEGER *integer) {
 }
 
 void AssemblyGenerator::Visit(Value_LOAD *load) {
+  // %0 = load @a
   LOG("Value_LOAD");
   
   int offset = reg_allocator->GetLoc(load);
   auto temp_val = std::make_shared<Value_INTEGER>(0);
   auto result_reg = reg_allocator->Alloc(temp_val.get());
-  
+  // 读取变量@a的值到寄存器中
   auto src_addr = GetValueAddr(load->src.get());
   fs << " lw    " << result_reg << ", 0(" << src_addr << ")" << std::endl;
   
@@ -334,9 +330,11 @@ void AssemblyGenerator::Visit(Value_LOAD *load) {
 }
 
 void AssemblyGenerator::Visit(Value_STORE *store) {
+  // store %0, @a
   LOG("Value_STORE");
-  
+  // 读取源变量%0的值到寄存器中
   auto r = GetValueReg(store->value.get());
+  // 写入目标变量@a的值
   auto dst_addr = GetValueAddr(store->dst.get());
   fs << " sw    " << r << ", 0(" << dst_addr << ")" << std::endl;
 
@@ -344,14 +342,14 @@ void AssemblyGenerator::Visit(Value_STORE *store) {
 }
 
 void AssemblyGenerator::Visit(Value_JUMP *jump) {
-  LOG("Value_JUMP");
   // 访问跳转指令 jump %end
+  LOG("Value_JUMP");
   fs << " j " << jump->dst_name << std::endl;
 }
 
 void AssemblyGenerator::Visit(Value_BRANCH *branch) {
   LOG("Value_BRANCH");
-  
+  // 读取条件变量%cond的值到寄存器中
   auto r = GetValueReg(branch->cond.get());
   fs << " bnez  " << r << ", " << branch->then_name << std::endl;
   fs << " j     " << branch->else_name << std::endl;

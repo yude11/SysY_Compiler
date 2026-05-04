@@ -165,8 +165,38 @@ class VarDefAST : public BaseAST {
 
     int type = -1;
     std::string ident;
-    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> var_exps;
-    std::unique_ptr<BaseAST> array_size;
+    std::unique_ptr<BaseAST> var_exps;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_size;
+};
+
+class InitValAST : public BaseAST {
+ public:
+  void Accept(ASTVisitor *visitor) override {
+    visitor->Visit(this);
+  }
+
+  void Dump() const override {
+    if (is_leaf) {
+      std::cout << "Leaf: ";
+      exp->Dump();
+    } else {
+      std::cout << "List: { ";
+      for (auto& child : children) {
+        child->Dump();
+        std::cout << " ";
+      }
+      std::cout << "}";
+    }
+  }
+
+  // true: 叶子节点（单个 Exp），false: 列表节点
+  bool is_leaf = false;
+  
+  // 叶子时用
+  std::unique_ptr<BaseAST> exp;
+  
+  // 列表时用，每个元素都是 InitValAST
+  std::vector<std::unique_ptr<InitValAST>> children;
 };
 
 
@@ -208,8 +238,38 @@ class ConstDefAST : public BaseAST {
     
     int type = -1;
     std::string ident;
-    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> const_exps;
-    std::unique_ptr<BaseAST> array_size;
+    std::unique_ptr<BaseAST> const_exps;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_size;
+};
+
+class ConstInitValAST : public BaseAST {
+  public:
+    void Accept(ASTVisitor *visitor) override {
+      visitor->Visit(this);
+    }
+
+    void Dump() const override {
+      if (is_leaf) {
+        std::cout << "Leaf: ";
+        exp->Dump();
+      } else {
+        std::cout << "List: { ";
+        for (auto& child : children) {
+          child->Dump();
+          std::cout << " ";
+        }
+        std::cout << "}";
+      }
+    }
+
+    // true: 叶子节点（单个 Exp），false: 列表节点
+    bool is_leaf = false;
+    
+    // 叶子时用
+    std::unique_ptr<BaseAST> exp;
+    
+    // 列表时用，每个元素都是 ConstInitValAST
+    std::vector<std::unique_ptr<ConstInitValAST>> children;
 };
 
 class NumberAST : public BaseAST {
@@ -239,7 +299,7 @@ class LValAST : public BaseAST {
 
     int type = -1;
     std::string ident;
-    std::unique_ptr<BaseAST> array_index;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_index;
 };
 
 class StmtAST : public BaseAST {

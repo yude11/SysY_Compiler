@@ -20,6 +20,72 @@ IRgenerator::IRgenerator() : program(std::make_unique<Program>()), symbol_table(
 
 IRgenerator::~IRgenerator() {}
 
+void IRgenerator::ParseArrayInitVals(InitValAST* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level) {
+  ExpComputer computer(symbol_table.get());
+  
+  // 叶子节点：直接计算表达式值
+  if (ast->is_leaf) {
+    auto val = std::make_shared<Value_INTEGER>(computer.Evaluate(ast->exp.get()));
+    init_vals.push_back(val);
+    return;
+  }
+  
+  // 非叶子节点：递归处理子节点
+  for (auto& child : ast->children) {
+    ParseArrayInitVals(child.get(), init_vals, dims, level + 1);
+  }
+  
+  // 补零：当前层每个缺失的元素需要补一个"子数组"大小的零
+  if (level < dims.size() && ast->children.size() < dims[level]) {
+    // 计算剩余维度的总大小（即一个子数组有多少个元素）
+    int subArraySize = 1;
+    for (int i = level + 1; i < dims.size(); i++) {
+      subArraySize *= dims[i];
+    }
+    int missingCount = dims[level] - ast->children.size();
+    int totalZeros = missingCount * subArraySize;
+    
+    for (int i = 0; i < totalZeros; i++) {
+      init_vals.push_back(std::make_shared<Value_INTEGER>(0));
+    }
+  }
+}
+
+void IRgenerator::ParseArrayInitVals(ConstInitValAST* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level) {
+  ExpComputer computer(symbol_table.get());
+  
+  // 叶子节点：直接计算表达式值
+  if (ast->is_leaf) {
+    int v = computer.Evaluate(ast->exp.get());
+    LOG("ConstInitValAST: " << v);
+    auto val = std::make_shared<Value_INTEGER>(v);
+    init_vals.push_back(val);
+    return;
+  }
+  
+  // 非叶子节点：递归处理子节点
+  for (auto& child : ast->children) {
+    ParseArrayInitVals(child.get(), init_vals, dims, level + 1);
+  }
+  
+  // 补零：当前层每个缺失的元素需要补一个"子数组"大小的零
+  LOG("Children size: " << ast->children.size());
+  LOG("Dim size: " << dims.size());
+  LOG("Level: " << level);
+  if (level < dims.size() && ast->children.size() < dims[level]) {
+    // 计算剩余维度的总大小（即一个子数组有多少个元素）
+    int subArraySize = 1;
+    for (int i = level+1; i < dims.size(); i++) {
+      subArraySize *= dims[i];
+    }
+    subArraySize *= (dims[level]-ast->children.size());
+    
+    for (int i = 0; i < subArraySize; i++) {
+      init_vals.push_back(std::make_shared<Value_INTEGER>(0));
+    }
+  }
+}
+
 void IRgenerator::Visit(CompUnitAST* ast) {
   LOG("CompUnitAST");
   // 添加库函数声明
@@ -55,44 +121,72 @@ void IRgenerator::Visit(CompUnitAST* ast) {
         std::vector<std::shared_ptr<Value>> init_vals;
         SymbolType symbol_type = SymbolType::Var;
         switch (var_def->type) {
-          case 0:
+          case 0: {
             init_vals.push_back(std::make_shared<Value_INTEGER>(0));
             symbol_type = SymbolType::Var;
+            auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
+            name_manager->AllocateNamed(var_def->ident), init_vals);
+                  program->values.push_back(global_alloc);
+            symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type);
             break;
-          case 1:
+          }
+          case 1: {
+            auto exps = static_cast<InitValAST*>(var_def->var_exps.get());
             init_vals.push_back(std::make_shared<Value_INTEGER>(
-                global_var_computer.Evaluate(var_def->var_exps->at(0).get())));
-                symbol_type = SymbolType::Var;
-            break;
+              global_var_computer.Evaluate(exps->exp.get())));
+              symbol_type = SymbolType::Var;
+              auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
+                    name_manager->AllocateNamed(var_def->ident), init_vals);
+              program->values.push_back(global_alloc);
+              symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type);
+              break;
+            }
           case 2: {
-            // 首先计算数组的大小
-            int array_size = global_var_computer.Evaluate(var_def->array_size.get());
-            symbol_type = SymbolType::Array;
-            for (int i = 0; i < array_size; i++) {
+            // 1. 解析数组的初始化值，返回数组的初始化数组
+            std::vector<std::shared_ptr<Value>> init_vals;
+            std::vector<int> dims;
+            // 解析数组维度
+            for (auto& dim : *(var_def->array_size)) {
+              dims.push_back(global_var_computer.Evaluate(dim.get()));
+            }
+            int size = 1;
+            for (auto& dim : dims) {
+              size *= dim;
+            }
+            // 使用默认值初始化数组
+            for (int i = 0; i < size; i++) {
               init_vals.push_back(std::make_shared<Value_INTEGER>(0));
             }
+            // 2. 插入符号表和IR
+            symbol_type = SymbolType::Array;
+            auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
+                    name_manager->AllocateNamed(var_def->ident), init_vals, dims);
+            program->values.push_back(global_alloc);
+            symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type, dims);
             break;
           }
           case 3: {
-            // 首先计算数组的大小
-            int array_size = global_var_computer.Evaluate(var_def->array_size.get());
+            // 1. 解析数组的初始化值，返回数组的初始化数组
+            std::vector<std::shared_ptr<Value>> init_vals;
+            std::vector<int> dims;
+            // 解析数组维度
+            for (auto& dim : *(var_def->array_size)) {
+              dims.push_back(global_var_computer.Evaluate(dim.get()));
+            }
+            // 解析初始化列表
+            auto exps = static_cast<InitValAST*>(var_def->var_exps.get());
+            ParseArrayInitVals(exps, init_vals, dims, 0);
+            // 2. 插入符号表和IR
             symbol_type = SymbolType::Array;
-            for (int i = 0; i < var_def->var_exps->size(); i++) {
-              init_vals.push_back(std::make_shared<Value_INTEGER>(
-                  global_var_computer.Evaluate(var_def->var_exps->at(i).get())));
-            }
-            for (int i = var_def->var_exps->size(); i < array_size; i++) {
-              init_vals.push_back(std::make_shared<Value_INTEGER>(0));
-            }
+            auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
+                    name_manager->AllocateNamed(var_def->ident), init_vals, dims);
+            program->values.push_back(global_alloc);
+            symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type, dims);
             break;
           }
           default:
             break;
         }
-        auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
-            name_manager->AllocateNamed(var_def->ident), init_vals);
-        program->values.push_back(global_alloc);
-        symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type);
       }
     } else if (dynamic_cast<ConstDeclAST*>(func_def_or_decl.get())) {
       auto decl = static_cast<ConstDeclAST*>(func_def_or_decl.get());
@@ -102,22 +196,28 @@ void IRgenerator::Visit(CompUnitAST* ast) {
         auto const_def = static_cast<ConstDefAST*>(def.get());
         switch (const_def->type) {
           case 0: {
+            auto exps = static_cast<ConstInitValAST*>(const_def->const_exps.get());
             auto const_value = std::make_shared<Value_INTEGER>(
-                      global_var_computer.Evaluate(const_def->const_exps->at(0).get()));
+                      global_var_computer.Evaluate(exps->exp.get()));
             symbol_table->Insert(const_def->ident, const_value, SymbolType::Var, true, decl->elem_type);
             break;
           }
           case 1: {
-            int array_size = global_var_computer.Evaluate(const_def->array_size.get());
+            // 1. 解析数组的初始化值，返回数组的初始化数组
             std::vector<std::shared_ptr<Value>> init_vals;
-            for (int i = 0; i < array_size; i++) {
-              init_vals.push_back(std::make_shared<Value_INTEGER>(
-                  global_var_computer.Evaluate(const_def->const_exps->at(i).get())));
+            std::vector<int> dims;
+            // 解析数组维度
+            for (auto& dim : *(const_def->array_size)) {
+              dims.push_back(global_var_computer.Evaluate(dim.get()));
             }
+            // 解析初始化列表
+            auto exps = static_cast<ConstInitValAST*>(const_def->const_exps.get());
+            ParseArrayInitVals(exps, init_vals, dims, 0);
+            // 2. 将数组加入符号表
             auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
-                name_manager->AllocateNamed(const_def->ident), init_vals);
+                name_manager->AllocateNamed(const_def->ident), init_vals, dims);
             program->values.push_back(global_alloc);
-            symbol_table->Insert(const_def->ident, global_alloc, SymbolType::Array, true, decl->elem_type);
+            symbol_table->Insert(const_def->ident, global_alloc, SymbolType::Array, true, decl->elem_type, dims);
             break;
           }
           default:
@@ -230,13 +330,23 @@ void IRgenerator::Visit(StmtAST* ast) {
         // 普通变量：直接 store
         current_block->stmts.push_back(std::make_shared<Value_STORE>(val, variable));
       } else {
-        // 数组元素：先 getelemptr，再 store
-        lval->array_index->Accept(this);
-        auto index = current_value_stack.top();
-        current_value_stack.pop();
-        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), variable, index);
-        current_block->stmts.push_back(get_elem_ptr);
-        current_block->stmts.push_back(std::make_shared<Value_STORE>(val, get_elem_ptr));
+        // 数组元素：支持多维索引
+        // 1. 先计算所有索引值
+        std::vector<std::shared_ptr<Value>> indices;
+        for (auto& index_ast : *(lval->array_index)) {
+          index_ast->Accept(this);
+          indices.push_back(current_value_stack.top());
+          current_value_stack.pop();
+        }
+        // 2. 生成 getelemptr 指令链
+        std::shared_ptr<Value> current_ptr = variable;
+        for (auto& index : indices) {
+          auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), current_ptr, index);
+          current_block->stmts.push_back(get_elem_ptr);
+          current_ptr = get_elem_ptr;
+        }
+        // 3. 生成 store 指令
+        current_block->stmts.push_back(std::make_shared<Value_STORE>(val, current_ptr));
       }
       break;
     }
@@ -781,44 +891,52 @@ void IRgenerator::Visit(ConstDeclAST* ast) {
   for (auto& item : *(ast->const_def_list)) {
     auto const_def = static_cast<ConstDefAST*>(item.get());
     switch (const_def->type) {
-    case 0:
-      // 常量定义
-      assert(const_def->const_exps->size() == 1 && "ConstDef must have one expression");
-      const_def->const_exps->at(0)->Accept(this);
-      symbol_table->Insert(const_def->ident, current_value_stack.top(), SymbolType::Var, true, ast->elem_type);
-      current_value_stack.pop();
-      break;
-    case 1:
+    case 0: {
+      // 常量定义（普通变量）
       ExpComputer computer(symbol_table.get());
-      // 数组定义
-      // 1. 生成alloc指令
+      int val = computer.Evaluate(const_def->const_exps.get());
+      auto const_val = std::make_shared<Value_INTEGER>(val);
+      symbol_table->Insert(const_def->ident, const_val, SymbolType::Var, true, ast->elem_type);
+      break;
+    }
+    case 1: {
+      // 常量数组定义
+      ExpComputer computer(symbol_table.get());
+      // 1. 解析所有维度
       std::vector<int> dims;
-      int array_size = computer.Evaluate(const_def->array_size.get());
-      dims.push_back(array_size);
+      for (auto& dim_ast : *(const_def->array_size)) {
+        dims.push_back(computer.Evaluate(dim_ast.get()));
+      }
+      // 计算总元素个数
+      int total_size = 1;
+      for (int d : dims) {
+        total_size *= d;
+      }
+      // 2. 生成alloc指令
       auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(const_def->ident), ast->elem_type, dims);
       current_block->stmts.push_back(alloc);
-      symbol_table->Insert(const_def->ident, alloc, SymbolType::Array, true, ast->elem_type);
-      // 2. 初始化数组 
-      for (int i = 0; i < const_def->const_exps->size(); i++) {
-        // int val = computer.Evaluate(const_def->const_exps->at(i).get());
-        const_def->const_exps->at(i)->Accept(this);
-        auto val = current_value_stack.top();
-        current_value_stack.pop();
-        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
-        current_block->stmts.push_back(get_elem_ptr);
-        /// 为store指令赋值，生成store指令
-        auto store = std::make_shared<Value_STORE>(val, get_elem_ptr);
-        current_block->stmts.push_back(store);
+      // 插入符号表
+      symbol_table->Insert(const_def->ident, alloc, SymbolType::Array, true, ast->elem_type, dims);
+      // 3. 解析初始化列表（支持嵌套）
+      std::vector<std::shared_ptr<Value>> init_vals;
+      auto init_ast = static_cast<ConstInitValAST*>(const_def->const_exps.get());
+      if (init_ast) {
+        ParseArrayInitVals(init_ast, init_vals, dims, 0);
       }
-      for (int i = const_def->const_exps->size(); i < array_size; i++) {
-        int val = 0;
-        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
+      // 确保初始化值数量正确（补零）
+      while (init_vals.size() < total_size) {
+        init_vals.push_back(std::make_shared<Value_INTEGER>(0));
+      }
+      // 4. 生成store指令初始化数组
+      for (int i = 0; i < total_size; i++) {
+        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(
+            name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
         current_block->stmts.push_back(get_elem_ptr);
-        /// 为store指令赋值，生成store指令
-        auto store = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(val), get_elem_ptr);
+        auto store = std::make_shared<Value_STORE>(init_vals[i], get_elem_ptr);
         current_block->stmts.push_back(store);
       }
       break;
+    }
     }
   }
 }
@@ -840,16 +958,26 @@ void IRgenerator::Visit(LValAST* ast) {
       /// 压入load的结果
       current_value_stack.push(load_val);
     } else {
-      ast->array_index->Accept(this);
-      auto index = current_value_stack.top();
-      current_value_stack.pop();
-      // 数组索引，生成get_elem_ptr指令
-      auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), val, index);
-      current_block->stmts.push_back(get_elem_ptr);
-      // 生成load指令
-      auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), get_elem_ptr);
+      // 数组元素读取：支持多维索引
+      // 1. 先计算所有索引值
+      auto index_list = static_cast<std::vector<std::unique_ptr<BaseAST>>*>(ast->array_index.get());
+      std::vector<std::shared_ptr<Value>> indices;
+      for (auto& index_ast : *index_list) {
+        index_ast->Accept(this);
+        indices.push_back(current_value_stack.top());
+        current_value_stack.pop();
+      }
+      // 2. 生成 getelemptr 指令链
+      std::shared_ptr<Value> current_ptr = val;
+      for (auto& index : indices) {
+        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), current_ptr, index);
+        current_block->stmts.push_back(get_elem_ptr);
+        current_ptr = get_elem_ptr;
+      }
+      // 3. 生成 load 指令
+      auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), current_ptr);
       current_block->stmts.push_back(load_val);
-      // 压入load的结果
+      // 4. 压入load的结果
       current_value_stack.push(load_val);
     }
   } else {
@@ -887,8 +1015,9 @@ void IRgenerator::Visit(VarDeclAST* ast) {
         // 生成alloc指令
         auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type);
         current_block->stmts.push_back(alloc);
-        // 初始化
-        var_def->var_exps->at(0)->Accept(this);
+        // 初始化变量
+        auto exp = static_cast<InitValAST*>(var_def->var_exps.get());
+        exp->exp->Accept(this);
         // 为变量赋值，生成store指令
         auto store = std::make_shared<Value_STORE>(current_value_stack.top(), alloc);
         current_block->stmts.push_back(store);
@@ -897,36 +1026,68 @@ void IRgenerator::Visit(VarDeclAST* ast) {
         symbol_table->Insert(var_def->ident, alloc, SymbolType::Var, false, ast->elem_type);
         break;
       }
-      case 2:
-      case 3: {
-        // 数组定义
+      case 2: {
+        // 数组定义（无初始化值）
         ExpComputer computer(symbol_table.get());
-        // 1. 生成alloc指令
+        // 1. 解析所有维度
         std::vector<int> dims;
-        int array_size = computer.Evaluate(var_def->array_size.get());
-        dims.push_back(array_size);
+        for (auto& dim_ast : *(var_def->array_size)) {
+          dims.push_back(computer.Evaluate(dim_ast.get()));
+        }
+        // 计算总元素个数
+        int total_size = 1;
+        for (int d : dims) {
+          total_size *= d;
+        }
+        // 2. 生成alloc指令
         auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type, dims);
         current_block->stmts.push_back(alloc);
         // 插入符号表
-        symbol_table->Insert(var_def->ident, alloc, SymbolType::Array, false, ast->elem_type);
-        // 2. 初始化数组 
-        for (int i = 0; i < var_def->var_exps->size(); i++) {
-          // int val = computer.Evaluate(var_def->var_exps->at(i).get());
-          var_def->var_exps->at(i)->Accept(this);
-          auto val = current_value_stack.top();
-          current_value_stack.pop();
-          auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
+        symbol_table->Insert(var_def->ident, alloc, SymbolType::Array, false, ast->elem_type, dims);
+        // 3. 无初始化值，全部补零
+        for (int i = 0; i < total_size; i++) {
+          auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(
+              name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
           current_block->stmts.push_back(get_elem_ptr);
-          /// 为store指令赋值，生成store指令
-          auto store = std::make_shared<Value_STORE>(val, get_elem_ptr);
+          auto store = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(0), get_elem_ptr);
           current_block->stmts.push_back(store);
         }
-        for (int i = var_def->var_exps->size(); i < array_size; i++) {
-          int val = 0;
-          auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
+        break;
+      }
+      case 3: {
+        // 数组定义（有初始化值）
+        ExpComputer computer(symbol_table.get());
+        // 1. 解析所有维度
+        std::vector<int> dims;
+        for (auto& dim_ast : *(var_def->array_size)) {
+          dims.push_back(computer.Evaluate(dim_ast.get()));
+        }
+        // 计算总元素个数
+        int total_size = 1;
+        for (int d : dims) {
+          total_size *= d;
+        }
+        // 2. 生成alloc指令
+        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type, dims);
+        current_block->stmts.push_back(alloc);
+        // 插入符号表
+        symbol_table->Insert(var_def->ident, alloc, SymbolType::Array, false, ast->elem_type, dims);
+        // 3. 解析初始化列表（支持嵌套）
+        std::vector<std::shared_ptr<Value>> init_vals;
+        auto init_ast = static_cast<InitValAST*>(var_def->var_exps.get());
+        if (init_ast) {
+          ParseArrayInitVals(init_ast, init_vals, dims, 0);
+        }
+        // 确保初始化值数量正确（补零）
+        while (init_vals.size() < total_size) {
+          init_vals.push_back(std::make_shared<Value_INTEGER>(0));
+        }
+        // 4. 生成store指令初始化数组
+        for (int i = 0; i < total_size; i++) {
+          auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(
+              name_manager->AllocateTemp(), alloc, std::make_shared<Value_INTEGER>(i));
           current_block->stmts.push_back(get_elem_ptr);
-          /// 为store指令赋值，生成store指令
-          auto store = std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(val), get_elem_ptr);
+          auto store = std::make_shared<Value_STORE>(init_vals[i], get_elem_ptr);
           current_block->stmts.push_back(store);
         }
         break;
@@ -936,6 +1097,16 @@ void IRgenerator::Visit(VarDeclAST* ast) {
         break;
     }
   }
+}
+
+void IRgenerator::Visit(InitValAST* ast) {
+  LOG("InitValAST");
+  // 不生成任何东西，空操作
+}
+
+void IRgenerator::Visit(ConstInitValAST* ast) {
+  LOG("ConstInitValAST");
+  // 不生成任何东西，空操作
 }
 
 void IRgenerator::Visit(NullAST* ast) {
@@ -1154,19 +1325,52 @@ void IROutputer::Visit(Value_Call* call) {
   fs << ")" << std::endl;
 }
 
-void IROutputer::Visit(Value_GLOBOL_ALLOC* glob_alloc) {
-  fs << "global " << glob_alloc->name << " = alloc ";
-  if (glob_alloc->init.size() == 1) {
-    fs << "i32, "<< glob_alloc->init[0]->name;
-  } else {
-    fs << "[i32, " << glob_alloc->init.size() << "], {";
-    for (size_t i = 0; i < glob_alloc->init.size(); ++i) {
-      fs << glob_alloc->init[i]->name;
-      if (i != glob_alloc->init.size() - 1) {
+// 辅助函数：递归输出多维数组初始化值
+void IROutputer::OutputArrayInit(const std::vector<std::shared_ptr<Value>>& init,
+                                  const std::vector<int>& dims,
+                                  int level,
+                                  std::fstream& fs,
+                                  int& index) {
+  fs << "{";
+  if (level == dims.size() - 1) {
+    // 最内层：直接输出元素值
+    for (int i = 0; i < dims[level]; i++) {
+      fs << init[index]->name;
+      index++;
+      if (i < dims[level] - 1) {
         fs << ", ";
       }
     }
-    fs << "}";
+  } else {
+    // 非最内层：递归输出子数组
+    for (int i = 0; i < dims[level]; i++) {
+      OutputArrayInit(init, dims, level + 1, fs, index);
+      if (i < dims[level] - 1) {
+        fs << ", ";
+      }
+    }
+  }
+  fs << "}";
+}
+
+void IROutputer::Visit(Value_GLOBOL_ALLOC* glob_alloc) {
+  fs << "global " << glob_alloc->name << " = alloc ";
+  if (glob_alloc->dims.empty()) {
+    // 普通变量
+    fs << "i32, "<< glob_alloc->init[0]->name;
+  } else {
+    // 数组
+    for (int i = glob_alloc->dims.size() - 1; i >= 0; --i) {
+      fs << "[";
+    }
+    fs << "i32";
+    for (int i = glob_alloc->dims.size() - 1; i >= 0; --i) {
+      fs << ", " << glob_alloc->dims[i] << "]";
+    }
+    fs << ", ";
+    // 递归输出多维数组初始化值
+    int index = 0;
+    OutputArrayInit(glob_alloc->init, glob_alloc->dims, 0, fs, index);
   }
   fs << std::endl;
 }
@@ -1186,41 +1390,6 @@ int ExpComputer::Evaluate(BaseAST* ast) {
   val = val_stack->top();
   val_stack->pop();
   return val;
-}
-
-void ExpComputer::Visit(VarDeclAST* ast) {
-  for (auto& item : *(ast->var_def_list)) {
-    auto var_def = static_cast<VarDefAST*>(item.get());
-    int init_val = 0;
-    if (var_def->type == 1 && var_def->var_exps->size() > 0) {
-      var_def->var_exps->at(0)->Accept(this);
-      init_val = val_stack->top();
-      val_stack->pop();
-    }
-    global_var_infos[var_def->ident] = {init_val, ast->elem_type, false};
-  }
-}
-
-void ExpComputer::Visit(ConstDeclAST* ast) {
-  for (auto& item : *(ast->const_def_list)) {
-    auto const_def = static_cast<ConstDefAST*>(item.get());
-    const_def->const_exps->at(0)->Accept(this);
-    int val = val_stack->top();
-    val_stack->pop();
-    global_var_infos[const_def->ident] = {val, ast->elem_type, true};
-  }
-}
-
-void ExpComputer::Visit(ConstDefAST* ast) {
-  ast->const_exps->at(0)->Accept(this);
-}
-
-void ExpComputer::Visit(VarDefAST* ast) {
-  if (ast->type == 1 && ast->var_exps->size() > 0) {
-    ast->var_exps->at(0)->Accept(this);
-  } else {
-    val_stack->push(0);
-  }
 }
 
 void ExpComputer::Visit(LValAST* ast) {
@@ -1438,3 +1607,23 @@ void ExpComputer::Visit(FuncTypeAST* ast) {}
 void ExpComputer::Visit(FuncDefAST* ast) {}
 
 void ExpComputer::Visit(BlockAST* ast) {}
+
+void ExpComputer::Visit(InitValAST* ast) {}
+
+void ExpComputer::Visit(ConstInitValAST* ast) {
+  if (ast->is_leaf && ast->exp) {
+    ast->exp->Accept(this);
+  } else {
+    // 非叶子节点不应该在这里被计算
+    assert(0);
+    val_stack->push(0);
+  }
+}
+
+void ExpComputer::Visit(VarDeclAST* ast) {}
+
+void ExpComputer::Visit(ConstDeclAST* ast) {}
+
+void ExpComputer::Visit(ConstDefAST* ast) {}
+
+void ExpComputer::Visit(VarDefAST* ast) {}

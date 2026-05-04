@@ -55,12 +55,15 @@ class Value_GLOBOL_ALLOC : public Value {
 public:
     Value_GLOBOL_ALLOC(std::string name, std::vector<std::shared_ptr<Value>> init)
         : Value(name, Value_Type::KOOPA_RVT_GLOBAL_ALLOC), init(init) {}
+    Value_GLOBOL_ALLOC(std::string name, std::vector<std::shared_ptr<Value>> init, std::vector<int> dims)
+        : Value(name, Value_Type::KOOPA_RVT_GLOBAL_ALLOC), init(init), dims(dims) {}
     
     void Accept(IRVisitor* visitor) override {
         visitor->Visit(this);
     }
     
     std::vector<std::shared_ptr<Value>> init;
+    std::vector<int> dims; // 数组的维度
 };
 
 class Value_GET_ELEM_PTR : public Value {

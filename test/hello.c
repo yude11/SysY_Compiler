@@ -1,9 +1,7 @@
-int arr[6];
-
 int main() {
-  // int arr[4] = {1};
-  arr[0] = 1;
-  int a;
-  a = 1;
-  return arr[0];
+  int a[10];
+  const int len = 10;
+  int t = 1;
+  int b[8 + 2], c, d[len];
+  return 0;
 }

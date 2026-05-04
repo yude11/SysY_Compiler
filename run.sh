@@ -1,4 +1,4 @@
-sh build.sh
+sh build.sh || exit 1
 
 action=${1:-run}
 mode=${2:-ir}

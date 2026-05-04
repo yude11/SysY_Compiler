@@ -42,11 +42,17 @@ class IRgenerator : public ASTVisitor {
     void Visit(LValAST* ast) override;
     void Visit(VarDefAST* ast) override;
     void Visit(VarDeclAST* ast) override;
+    void Visit(InitValAST* ast) override;
+    void Visit(ConstInitValAST* ast) override;
     void Visit(NullAST* ast) override;
     void Visit(FuncCallAST* ast) override;
 
     // 输出IR表示
     void OutputIR(std::string output);
+
+    // 解析数组初始化值
+    void ParseArrayInitVals(InitValAST* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level);
+    void ParseArrayInitVals(ConstInitValAST* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level);
 
     std::unique_ptr<Program> program;
     std::unique_ptr<Function> current_func;
@@ -79,6 +85,13 @@ class IROutputer : public IRVisitor {
     void Visit(Value_ALLOC* alloc) override;
     void Visit(Value_GLOBOL_ALLOC* glob_alloc) override;
     void Visit(Value_GET_ELEM_PTR* get_elem_ptr) override;
+    
+    // 辅助函数：递归输出多维数组初始化值
+    void OutputArrayInit(const std::vector<std::shared_ptr<Value>>& init, 
+                         const std::vector<int>& dims, 
+                         int level, 
+                         std::fstream& fs,
+                         int& index);
     void Visit(Value_LOAD* load) override;
     void Visit(Value_Call* call) override;
     void Visit(Value_STORE* store) override;
@@ -124,7 +137,8 @@ class ExpComputer : public ASTVisitor {
     void Visit(EqExpAST* ast) override;
     void Visit(RelExpAST* ast) override;
     void Visit(BlockItemAST* ast) override;
-
+    void Visit(InitValAST* ast) override;
+    void Visit(ConstInitValAST* ast) override;
     void Visit(ConstDefAST* ast) override;
     void Visit(LValAST* ast) override;
     void Visit(VarDefAST* ast) override;

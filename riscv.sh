@@ -1,4 +1,4 @@
-sh build.sh
+sh build.sh || exit 1
 
 ./build/compiler -riscv test/hello.c -o test/hello.S
 

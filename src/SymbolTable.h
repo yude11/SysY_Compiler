@@ -32,8 +32,8 @@ class SymbolFunc : public Symbol {
 
 class SymbolArray : public Symbol {
   public:
-    SymbolArray(std::string name, std::shared_ptr<Value> value, SymbolType symbol_type, bool is_const, std::string elem_type)
-      : Symbol(name, value, symbol_type, is_const, elem_type) {}
+    SymbolArray(std::string name, std::shared_ptr<Value> value, SymbolType symbol_type, bool is_const, std::string elem_type, const std::vector<int>& dims)
+      : Symbol(name, value, symbol_type, is_const, elem_type), dims(dims) {}
     std::vector<int> dims;
 };
 
@@ -68,11 +68,14 @@ class Scope {
       if (symbol_type == SymbolType::Func) {
         table[name] = std::make_unique<SymbolFunc>(name, value, symbol_type, is_const, elem_type);
         return;
-      } else if (symbol_type == SymbolType::Array) {
-        table[name] = std::make_unique<SymbolArray>(name, value, symbol_type, is_const, elem_type);
       } else {
         table[name] = std::make_unique<Symbol>(name, value, symbol_type, is_const, elem_type);
       }
+    }
+    // 插入数组符号到当前作用域
+    void Insert(const std::string& name, const std::shared_ptr<Value>& value, 
+                                SymbolType symbol_type, bool is_const, std::string elem_type, const std::vector<int>& dims) {
+      table[name] = std::make_unique<SymbolArray>(name, value, symbol_type, is_const, elem_type, dims);
     }
 
     void Remove(const std::string& name) {
@@ -125,6 +128,12 @@ class SymbolTable {
     void Insert(const std::string& name, const std::shared_ptr<Value>& value, 
                                 SymbolType symbol_type, bool is_const, std::string elem_type) {
       scopes[current_scope_level]->Insert(name, value, symbol_type, is_const, elem_type);
+    }
+
+    // 插入数组符号到当前作用域
+    void Insert(const std::string& name, const std::shared_ptr<Value>& value, 
+                                SymbolType symbol_type, bool is_const, std::string elem_type, const std::vector<int>& dims) {
+      scopes[current_scope_level]->Insert(name, value, symbol_type, is_const, elem_type, dims);
     }
 
     // 删除当前作用域中该符号

@@ -31,6 +31,8 @@ class RelExpAST;
 class BlockItemAST;
 class ConstDeclAST;
 class ConstDefAST;
+class InitValAST;
+class ConstInitValAST;
 class LValAST;
 class VarDefAST;
 class VarDeclAST;
@@ -68,6 +70,8 @@ class ASTVisitor : public Visitor {
     virtual void Visit(ConstDefAST* ast) = 0;
     virtual void Visit(LValAST* ast) = 0;
     virtual void Visit(VarDefAST* ast) = 0;
+    virtual void Visit(InitValAST* ast) = 0;
+    virtual void Visit(ConstInitValAST* ast) = 0;
     virtual void Visit(VarDeclAST* ast) = 0;
     virtual void Visit(NullAST* ast) = 0;
     virtual void Visit(FuncCallAST* ast) = 0;
