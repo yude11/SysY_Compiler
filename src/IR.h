@@ -68,8 +68,8 @@ public:
 
 class Value_GET_ELEM_PTR : public Value {
   public:
-    Value_GET_ELEM_PTR(std::string name, std::shared_ptr<Value> base, std::shared_ptr<Value> index)
-        : Value(name, Value_Type::KOOPA_RVT_GET_ELEM_PTR), base(base), index(index) {}
+    Value_GET_ELEM_PTR(std::string name, std::shared_ptr<Value> base, std::shared_ptr<Value> index, int elem_size = 4)
+        : Value(name, Value_Type::KOOPA_RVT_GET_ELEM_PTR), base(base), index(index), elem_size(elem_size) {}
 
     void Accept(IRVisitor* visitor) override {
         visitor->Visit(this);
@@ -77,6 +77,7 @@ class Value_GET_ELEM_PTR : public Value {
 
     std::shared_ptr<Value> base;  // 数组的基地址
     std::shared_ptr<Value> index;  // 索引值
+    int elem_size;  // 元素大小（字节），用于多维数组
 };
 
 // 内存加载指令

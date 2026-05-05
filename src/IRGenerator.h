@@ -50,9 +50,13 @@ class IRgenerator : public ASTVisitor {
     // 输出IR表示
     void OutputIR(std::string output);
 
-    // 解析数组初始化值
-    void ParseArrayInitVals(InitValAST* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level);
-    void ParseArrayInitVals(ConstInitValAST* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level);
+    // 模板函数：解析数组初始化值（适用于 InitValAST 和 ConstInitValAST），
+    // 递归处理初始化列表，将整数转换为 Value_INTEGER 节点，
+    // 规则：
+    // 1. 遇到整数：从最后一维开始填充
+    // 2. 遇到初始化列表：当前填充的元素个数必须是最后一维长度的整数倍，然后递归处理
+    template<typename T>
+    void ParseArrayInitVals(T* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level);
 
     std::unique_ptr<Program> program;
     std::unique_ptr<Function> current_func;

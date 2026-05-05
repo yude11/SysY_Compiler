@@ -391,7 +391,7 @@ void AssemblyGenerator::Visit(Value_GET_ELEM_PTR* get_elem_ptr) {
   auto index = GetValueReg(get_elem_ptr->index.get());
   auto temp_size = std::make_shared<Value_INTEGER>(0);
   auto size_reg = reg_allocator->Alloc(temp_size.get());
-  fs << " li    " << size_reg << ", 4" << std::endl;
+  fs << " li    " << size_reg << ", " << get_elem_ptr->elem_size << std::endl;
   fs << " mul   " << size_reg << ", " << size_reg << ", " << index << std::endl;
   fs << " add   " << base_reg << ", " << base_reg << ", " << size_reg << std::endl;
   StoreWord(base_reg, reg_allocator->GetLoc(get_elem_ptr));
