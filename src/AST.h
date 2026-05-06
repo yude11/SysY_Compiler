@@ -9,6 +9,21 @@
 #include "IR.h"
 #include "visitor.h"
 
+class TypeInfoModel {
+  public:
+    // 普通变量
+    TypeInfoModel(BaseType type) : type(type), kind(TypeInfo::TypeKind::SCALAR) {}
+    // 指针变量
+    TypeInfoModel(BaseType type, TypeInfo::TypeKind kind) : type(type), kind(kind) {}
+    // 数组变量, 指针变量
+    TypeInfoModel(BaseType type, TypeInfo::TypeKind kind, 
+      std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dims) 
+        : type(type), kind(kind), dims(std::move(dims)) {}
+    BaseType type;
+    TypeInfo::TypeKind kind;
+    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dims;
+};
+
 class BaseAST {
  public:
   virtual ~BaseAST() = default;
@@ -47,47 +62,26 @@ class CompUnitAST : public BaseAST {
   std::vector<std::unique_ptr<BaseAST>> func_defs_or_decls;
 };
 
-// 对于FuncType会直接返回一个类型不会有推导过程
-class FuncTypeAST : public BaseAST {
- public:
-  std::string type;
-
-  FuncTypeAST(std::string type) : type(type) {}
-
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
-
-  void Dump() const override {
-    std::cout << "FuncTypeAST: " <<  "{" << type << "}";
-  }
-};
-
 class FuncDefAST : public BaseAST {
  public:
   void Accept(ASTVisitor *visitor) override {
     visitor->Visit(this);
   }
 
- void Dump() const override {
-    std::cout << "FuncDefAST { ";
-    func_type->Dump();
-    std::cout << ", " << ident << ", ";
-    block->Dump();
-    std::cout << " }";
-  }
+ void Dump() const override {}
 
-  std::unique_ptr<BaseAST> func_type;
+  std::unique_ptr<TypeInfoModel> func_type;
   std::string ident;
   std::unique_ptr<BaseAST> block;
   struct FuncParam {
-    std::string type;
+    std::unique_ptr<TypeInfoModel> type;
     std::string ident;
   };
   typedef std::vector<std::unique_ptr<FuncParam>> FuncParams;
   std::unique_ptr<FuncParams> func_params;
 
 };
+
 // BLock = { BlockItem* }
 class BlockAST : public BaseAST {
   public:
@@ -144,7 +138,7 @@ class VarDeclAST : public BaseAST {
     }
 
     // List的大小要大于等于1
-    std::string elem_type;
+    std::unique_ptr<TypeInfoModel> elem_type;
     std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> var_def_list;
 };
 
@@ -217,7 +211,7 @@ class ConstDeclAST : public BaseAST {
     }
 
     // List的大小要大于等于1
-    std::string elem_type;
+    std::unique_ptr<TypeInfoModel> elem_type;
     std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> const_def_list;
 };
 
@@ -684,4 +678,3 @@ class LOrExpAST : public BaseAST {
   std::variant<std::unique_ptr<BaseAST>
                 , LOrExp> mem;
 };
-               

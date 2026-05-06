@@ -50,6 +50,7 @@ using namespace std;
   std::vector<std::unique_ptr<BaseAST>>* ast_list;
   FuncDefAST::FuncParams* func_param_list;
   FuncDefAST::FuncParam *func_param_val;
+  BaseType type_val;
 }
 
 // lexer 返回的所有 token 种类的声明
@@ -73,7 +74,7 @@ using namespace std;
 %type <ast_list> BlockItemList ConstDefList VarDefList FuncRParams FuncDefOrDeclList 
 %type <ast_list> InitValList ConstInitValList ArrayUIndexList ArrayIndexList
 
-%type <str_val> Type
+%type <type_val> Type
 %type <func_param_val> FuncFParam
 %type <func_param_list> FuncFParams
 
@@ -132,14 +133,15 @@ FuncDefOrDecl
 FuncDef
   : Type IDENT '(' ')' Block {
     auto ast = new FuncDefAST();
-    ast->func_type = make_unique<FuncTypeAST>(*($1));
+    ast->func_type = make_unique<TypeInfoModel>($1);
     ast->ident = *unique_ptr<string>($2);
     ast->block = unique_ptr<BaseAST>($5);
+    ast->func_params = std::make_unique<FuncDefAST::FuncParams>();
     $$ = ast;
   }
   | Type IDENT '(' FuncFParams ')' Block {
     auto ast = new FuncDefAST();
-    ast->func_type = make_unique<FuncTypeAST>(*($1));
+    ast->func_type = make_unique<TypeInfoModel>($1);
     ast->ident = *unique_ptr<string>($2);
     ast->block = unique_ptr<BaseAST>($6);
     ast->func_params = std::unique_ptr<FuncDefAST::FuncParams>($4);
@@ -150,10 +152,10 @@ FuncDef
 // 同上, 不再解释
 Type
   : INT {
-    $$ = new std::string("i32");
+    $$ = BaseType::INT;
   }
   | VOID {
-    $$ = new std::string("void");
+    $$ = BaseType::VOID;
   }
   ;
 
@@ -173,8 +175,21 @@ Type
   FuncFParam
     : Type IDENT {
       auto param = new FuncDefAST::FuncParam();
-      param->type = *unique_ptr<string>($1);
-      param->ident = *unique_ptr<string>($2);
+      param->type = make_unique<TypeInfoModel>($1);
+      param->ident = *std::unique_ptr<string>($2);
+      $$ = param;
+    }
+    | Type IDENT '[' ']' {
+      auto param = new FuncDefAST::FuncParam();
+      param->type = make_unique<TypeInfoModel>($1, TypeInfo::TypeKind::POINTER);
+      param->ident = *std::unique_ptr<string>($2);
+      $$ = param;
+    }
+    | Type IDENT '[' ']' ArrayIndexList {
+      auto param = new FuncDefAST::FuncParam();
+      param->type = make_unique<TypeInfoModel>($1, TypeInfo::TypeKind::POINTER, 
+            std::make_unique<std::vector<std::unique_ptr<BaseAST>>>(std::move(*$5)));
+      param->ident = *std::unique_ptr<string>($2);
       $$ = param;
     }
     ;
@@ -182,12 +197,12 @@ Type
 Block
   : '{' '}' {
     auto ast = new BlockAST();
-    ast->block_items = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>(new std::vector<std::unique_ptr<BaseAST>>());
+    ast->block_items = std::make_unique<std::vector<std::unique_ptr<BaseAST>>>();
     $$ = ast;
   }
   | '{' BlockItemList '}' {
     auto ast = new BlockAST();
-    ast->block_items = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($2);
+    ast->block_items.reset($2);
     $$ = ast;
   }
   ;
@@ -341,7 +356,7 @@ Decl
 VarDecl
   : Type VarDef ';' {
     auto ast = new VarDeclAST();
-    ast->elem_type = *($1);
+    ast->elem_type = make_unique<TypeInfoModel>($1);
     // 创建一个空的list, 并添加一个元素
     auto vec = new std::vector<std::unique_ptr<BaseAST>>();
     vec->push_back(std::unique_ptr<BaseAST>($2));
@@ -350,8 +365,8 @@ VarDecl
   }
   | Type VarDef ',' VarDefList ';' {
     auto ast = new VarDeclAST();
-    ast->elem_type = *($1);
-    ast->var_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($4);
+    ast->elem_type = make_unique<TypeInfoModel>($1);
+    ast->var_def_list.reset($4);
     // 在开头插入
     ast->var_def_list->insert(ast->var_def_list->begin(), 
                 std::unique_ptr<BaseAST>($2));
@@ -362,12 +377,12 @@ VarDecl
 VarDefList
   : VarDef {
     auto ast_list = new std::vector<std::unique_ptr<BaseAST>>();
-    ast_list->push_back(unique_ptr<BaseAST>($1));
+    ast_list->push_back(std::unique_ptr<BaseAST>($1));
     $$ = ast_list;
   }
   | VarDefList ',' VarDef {
     auto ast_list = $1;
-    ast_list->push_back(unique_ptr<BaseAST>($3));
+    ast_list->push_back(std::unique_ptr<BaseAST>($3));
     $$ = ast_list;
   }
   ;
@@ -376,20 +391,20 @@ VarDef
   : IDENT {
     auto ast = new VarDefAST();
     ast->type = 0;
-    ast->ident = *unique_ptr<string>($1);
+    ast->ident = *std::unique_ptr<string>($1);
     $$ = ast;
   }
   | IDENT '=' InitVal {
     auto ast = new VarDefAST();
     ast->type = 1;
-    ast->ident = *unique_ptr<string>($1);
+    ast->ident = *std::unique_ptr<string>($1);
     ast->var_exps = std::unique_ptr<BaseAST>($3);
     $$ = ast;
   }
   | IDENT ArrayIndexList {
     auto ast = new VarDefAST();
     ast->type = 2;
-    ast->ident = *unique_ptr<string>($1);
+    ast->ident = *std::unique_ptr<string>($1);
     ast->array_size = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($2);
     ast->var_exps = std::unique_ptr<BaseAST>();
     $$ = ast;
@@ -397,7 +412,7 @@ VarDef
   | IDENT ArrayIndexList '=' InitVal {
     auto ast = new VarDefAST();
     ast->type = 3;
-    ast->ident = *unique_ptr<string>($1);
+    ast->ident = *std::unique_ptr<string>($1);
     ast->array_size = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($2);
     ast->var_exps = std::unique_ptr<BaseAST>($4);
     $$ = ast;
@@ -446,17 +461,17 @@ InitValList
 ConstDecl
   : CONST Type ConstDef ';' {
     auto ast = new ConstDeclAST();
-    ast->elem_type = *($2);
+    ast->elem_type = make_unique<TypeInfoModel>($2);
     // 创建一个空的list, 并添加一个元素
     auto vec = new std::vector<std::unique_ptr<BaseAST>>();
     vec->push_back(std::unique_ptr<BaseAST>($3));
-    ast->const_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>(vec);
+    ast->const_def_list.reset(vec);
     $$ = ast;
   }
   | CONST Type ConstDef ',' ConstDefList ';' {
     auto ast = new ConstDeclAST();
-    ast->elem_type = *($2);
-    ast->const_def_list = std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>>($5);
+    ast->elem_type = make_unique<TypeInfoModel>($2);
+    ast->const_def_list.reset($5);
     // 在开头插入
     ast->const_def_list->insert(ast->const_def_list->begin(), 
                 std::unique_ptr<BaseAST>($3));
@@ -467,12 +482,12 @@ ConstDecl
 ConstDefList
   : ConstDef {
     auto ast_list = new std::vector<std::unique_ptr<BaseAST>>();
-    ast_list->push_back(unique_ptr<BaseAST>($1));
+    ast_list->push_back(std::unique_ptr<BaseAST>($1));
     $$ = ast_list;
   }
   | ConstDefList ',' ConstDef {
     auto ast_list = $1;
-    ast_list->push_back(unique_ptr<BaseAST>($3));
+    ast_list->push_back(std::unique_ptr<BaseAST>($3));
     $$ = ast_list;
   }
   ;
@@ -481,7 +496,7 @@ ConstDef
   : IDENT '=' ConstInitVal {
     auto ast = new ConstDefAST();
     ast->type = 0;
-    ast->ident = *unique_ptr<string>($1);
+    ast->ident = *std::unique_ptr<string>($1);
     ast->const_exps = std::unique_ptr<BaseAST>($3);
     $$ = ast;
   }

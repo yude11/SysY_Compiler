@@ -9,7 +9,6 @@
 class BaseAST;
 class NullAST;
 class CompUnitAST;
-class FuncTypeAST;
 class FuncDefAST;
 class BlockAST;
 class NumberAST;
@@ -47,7 +46,6 @@ class ASTVisitor : public Visitor {
   public:
     virtual ~ASTVisitor() {}
     virtual void Visit(CompUnitAST* ast) = 0;
-    virtual void Visit(FuncTypeAST* ast) = 0;
     virtual void Visit(FuncDefAST* ast) = 0;
     virtual void Visit(BlockAST* ast) = 0;
     virtual void Visit(NumberAST* ast) = 0;

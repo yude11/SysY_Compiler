@@ -163,11 +163,12 @@ public:
             value_to_stack[stmt.get()] = stack_offset;
             where_is_value[stmt.get()] = 2;  // 标记为在栈中
             auto alloc = static_cast<Value_ALLOC*>(stmt.get());
-            if (alloc->dims.empty()) {
+            std::vector<int> dims = alloc->elem_type.getArrayDims();
+            if (dims.empty()) {
               stack_offset += 4;  // 单个变量
             } else {
               int size = 1;
-              for (int dim : alloc->dims) {
+              for (int dim : dims) {
                 size *= dim;
               }
               stack_offset += size * 4;  // 数组

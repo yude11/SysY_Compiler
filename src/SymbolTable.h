@@ -4,41 +4,42 @@
 
 #include "IR.h"
 
-enum class SymbolType {
-  Var,
-  Func,
-  Array,
+// 统一的符号类型
+enum class SymbolKind {
+    VARIABLE,   // 变量（包括普通变量、数组、指针）
+    FUNCTION    // 函数
 };
 
 class Symbol {
-  public:
-    Symbol(std::string name, std::shared_ptr<Value> value, SymbolType symbol_type, bool is_const, std::string elem_type)
-      : name(name), value(value), symbol_type(symbol_type), is_const(is_const), elem_type(elem_type) {}
-    std::string name; // 标识符
-    std::shared_ptr<Value> value; // 表示存储位置
-    SymbolType symbol_type;
-    bool is_const;
-    std::string elem_type;
+public:
+    std::string name;  // 符号名称
+    SymbolKind kind;  // 符号类型
+    std::shared_ptr<Value> value;  // IR 中的值
     
-    int level; // 作用域级别
-  };
-  
-class SymbolFunc : public Symbol {
-  public:
-    SymbolFunc(std::string name, std::shared_ptr<Value> value, SymbolType symbol_type, bool is_const, std::string type)
-      : Symbol(name, value, symbol_type, is_const, type) {}
-    std::vector<std::string> args_type;
+    Symbol(const std::string& name, SymbolKind kind, std::shared_ptr<Value> value)
+        : name(name), kind(kind), value(value) {}
 };
 
-class SymbolArray : public Symbol {
-  public:
-    SymbolArray(std::string name, std::shared_ptr<Value> value, SymbolType symbol_type, bool is_const, std::string elem_type, const std::vector<int>& dims)
-      : Symbol(name, value, symbol_type, is_const, elem_type), dims(dims) {}
-    std::vector<int> dims;
+class VariableSymbol : public Symbol {
+public:
+    TypeInfo type;
+    bool is_const;
+    
+    VariableSymbol(const std::string& name, std::shared_ptr<Value> value, 
+                   const TypeInfo& type, bool is_const)
+        : Symbol(name, SymbolKind::VARIABLE, value), type(type), is_const(is_const) {}
 };
 
-
-
+class FunctionSymbol : public Symbol {
+public:
+    TypeInfo return_type;
+    std::vector<TypeInfo> param_types;
+    
+    FunctionSymbol(const std::string& name, std::shared_ptr<Value> value,
+                   const TypeInfo& return_type, const std::vector<TypeInfo>& param_types)
+        : Symbol(name, SymbolKind::FUNCTION, value), 
+          return_type(return_type), param_types(param_types) {}
+};
 
 // 作用域
 class Scope {
@@ -64,18 +65,13 @@ class Scope {
       return table.find(name) != table.end();
     }
 
-    void Insert(const std::string& name, const std::shared_ptr<Value>& value, SymbolType symbol_type, bool is_const, std::string elem_type) {
-      if (symbol_type == SymbolType::Func) {
-        table[name] = std::make_unique<SymbolFunc>(name, value, symbol_type, is_const, elem_type);
+    void Insert(const std::string& name, std::shared_ptr<Value> value, const TypeInfo& type, bool is_const) {
+        table[name] = std::make_unique<VariableSymbol>(name, value, type, is_const);
         return;
-      } else {
-        table[name] = std::make_unique<Symbol>(name, value, symbol_type, is_const, elem_type);
-      }
     }
     // 插入数组符号到当前作用域
-    void Insert(const std::string& name, const std::shared_ptr<Value>& value, 
-                                SymbolType symbol_type, bool is_const, std::string elem_type, const std::vector<int>& dims) {
-      table[name] = std::make_unique<SymbolArray>(name, value, symbol_type, is_const, elem_type, dims);
+    void Insert(const std::string& name, std::shared_ptr<Value> value, const TypeInfo& return_type, const std::vector<TypeInfo>& param_types) {
+      table[name] = std::make_unique<FunctionSymbol>(name, value, return_type, param_types);
     }
 
     void Remove(const std::string& name) {
@@ -124,16 +120,16 @@ class SymbolTable {
       return nullptr;
     }
 
-    // 插入符号到当前作用域
+    // 插入变量符号到当前作用域
     void Insert(const std::string& name, const std::shared_ptr<Value>& value, 
-                                SymbolType symbol_type, bool is_const, std::string elem_type) {
-      scopes[current_scope_level]->Insert(name, value, symbol_type, is_const, elem_type);
+                                TypeInfo type, bool is_const) {
+      scopes[current_scope_level]->Insert(name, value, type, is_const);
     }
 
-    // 插入数组符号到当前作用域
+    // 插入函数符号到当前作用域
     void Insert(const std::string& name, const std::shared_ptr<Value>& value, 
-                                SymbolType symbol_type, bool is_const, std::string elem_type, const std::vector<int>& dims) {
-      scopes[current_scope_level]->Insert(name, value, symbol_type, is_const, elem_type, dims);
+                                TypeInfo return_type, const std::vector<TypeInfo>& param_types) {
+      scopes[current_scope_level]->Insert(name, value, return_type, param_types);
     }
 
     // 删除当前作用域中该符号
@@ -154,14 +150,10 @@ class SymbolTable {
     void PrintTable() {
       std::cout << "Scope " << current_scope_level << std::endl;
       for (auto& [name, symbol] : scopes[current_scope_level]->table) {
-        if (symbol->symbol_type == SymbolType::Func) {
+        if (symbol->kind == SymbolKind::FUNCTION) {
           std::cout << "func : "<< name << std::endl; 
-          // << " " << symbol->value->name << " " << symbol->is_function << " " << symbol->is_const << " " << symbol->type << " " << func_symbol->args_type.size() << std::endl;
-        } else if (symbol->symbol_type == SymbolType::Var) {
+        } else if (symbol->kind == SymbolKind::VARIABLE) {
           std::cout << "var : "<< name << std::endl;
-          // << " " << symbol->value->name << " " << symbol->is_function << " " << symbol->is_const << " " << symbol->type << std::endl;
-        } else {
-          std::cout << "array : "<< name << std::endl;
         }
       }
     }

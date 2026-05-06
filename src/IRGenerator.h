@@ -18,7 +18,6 @@ class IRgenerator : public ASTVisitor {
     ~IRgenerator();
     // 对各种AST节点进行访问函数
     void Visit(CompUnitAST* ast) override;
-    void Visit(FuncTypeAST* ast) override;
     void Visit(FuncDefAST* ast) override;
     void Visit(BlockAST* ast) override;
     void Visit(NumberAST* ast) override;
@@ -58,6 +57,8 @@ class IRgenerator : public ASTVisitor {
     template<typename T>
     void ParseArrayInitVals(T* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level);
 
+    TypeInfo TypeInfoModelToTypeInfo(TypeInfoModel* type_model);
+    
     std::unique_ptr<Program> program;
     std::unique_ptr<Function> current_func;
     std::unique_ptr<BasicBlock> current_block;
@@ -78,7 +79,7 @@ class IROutputer : public IRVisitor {
   public:
     IROutputer();
 
-    IROutputer(std::string output, std::unique_ptr<SymbolTable> symbol_table);
+    IROutputer(std::string output);
     
     ~IROutputer();
     // 对IR节点进行访问函数
@@ -107,7 +108,6 @@ class IROutputer : public IRVisitor {
     void Visit(Program* program) override;
 
     std::fstream fs;
-    std::unique_ptr<SymbolTable> symbol_table;
 };
 
 class ExpComputer : public ASTVisitor {
@@ -122,7 +122,6 @@ class ExpComputer : public ASTVisitor {
 
     void Visit(ConstDeclAST* ast) override;
     void Visit(CompUnitAST* ast) override;
-    void Visit(FuncTypeAST* ast) override;
     void Visit(FuncDefAST* ast) override;
     void Visit(BlockAST* ast) override;
     void Visit(NumberAST* ast) override;

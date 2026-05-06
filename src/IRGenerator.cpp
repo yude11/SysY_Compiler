@@ -8,20 +8,61 @@
 #include <functional>
 
 // 库函数列表
-std::vector<std::vector<std::string>> builtin_functions = {
-    {"getint", "i32"},
-    {"getch", "i32"},
-    {"getarray", "i32", "*i32"},
-    {"putint", "void", "i32"},
-    {"putch", "void", "i32"},
-    {"putarray", "void", "i32", "*i32"},
-    {"starttime", "void"},
-    {"stoptime", "void"}
+// FunctionSymbol(name, value, return_type, param_types)
+std::vector<FunctionSymbol> builtin_functions = {
+    // int getint()
+    {"getint", nullptr, TypeInfo(BaseType::INT, {}), {}},
+    // int getch()
+    {"getch", nullptr, TypeInfo(BaseType::INT, {}), {}},
+    // int getarray(int *arr)
+    {"getarray", nullptr, TypeInfo(BaseType::INT, {}), 
+     {TypeInfo(BaseType::INT, {{TypeInfo::TypeKind::POINTER, 0}})}},
+    // void putint(int x)
+    {"putint", nullptr, TypeInfo(BaseType::VOID, {}), 
+     {TypeInfo(BaseType::INT, {})}},
+    // void putch(int x)
+    {"putch", nullptr, TypeInfo(BaseType::VOID, {}), 
+     {TypeInfo(BaseType::INT, {})}},
+    // void putarray(int n, int *arr)
+    {"putarray", nullptr, TypeInfo(BaseType::VOID, {}), 
+     {TypeInfo(BaseType::INT, {}), TypeInfo(BaseType::INT, {{TypeInfo::TypeKind::POINTER, 0}})}},
+    // void starttime()
+    {"starttime", nullptr, TypeInfo(BaseType::VOID, {}), {}},
+    // void stoptime()
+    {"stoptime", nullptr, TypeInfo(BaseType::VOID, {}), {}}
 };
 
 IRgenerator::IRgenerator() : program(std::make_unique<Program>()), symbol_table(std::make_unique<SymbolTable>()), name_manager(std::make_unique<IRNameManager>()) {}
 
 IRgenerator::~IRgenerator() {}
+
+TypeInfo IRgenerator::TypeInfoModelToTypeInfo(TypeInfoModel* type_model) {
+  std::vector<std::pair<TypeInfo::TypeKind, int>> modifiers;
+  
+  // SCALAR: 没有修饰符
+  if (type_model->kind == TypeInfo::TypeKind::SCALAR) {
+    return TypeInfo(type_model->type, modifiers);
+  }
+  
+  // POINTER: 添加指针修饰符
+  if (type_model->kind == TypeInfo::TypeKind::POINTER) {
+    modifiers.push_back({TypeInfo::TypeKind::POINTER, 0});
+  }
+  
+  // ARRAY 或 POINTER（指向数组）: 添加数组维度
+  // 计算每个维度的大小
+  if (type_model->dims) {
+    for (auto& dim_ast : *type_model->dims) {
+      // dims 中的元素是表达式 AST，需要计算其值
+      // 这里假设是常量表达式，可以用 ExpComputer 计算
+      ExpComputer computer(symbol_table.get());
+      int dim_size = computer.Evaluate(dim_ast.get());
+      modifiers.push_back({TypeInfo::TypeKind::ARRAY, dim_size});
+    }
+  }
+  
+  return TypeInfo(type_model->type, modifiers);
+}
 
 template<typename T>
 void IRgenerator::ParseArrayInitVals(T* ast, std::vector<std::shared_ptr<Value>>& init_vals, const std::vector<int>& dims, int level) {
@@ -93,25 +134,29 @@ void IRgenerator::Visit(CompUnitAST* ast) {
   LOG("CompUnitAST");
   // 添加库函数声明
   for (auto& func : builtin_functions) {
-    auto func_decl = std::make_unique<Function_Decl>();
-    func_decl->name = func[0];
-    func_decl->type.name = func[1];
-    for (size_t i = 2; i < func.size(); i++) {
-      func_decl->params_type.push_back(func[i]);
-    }
+    auto func_decl = std::make_unique<Function_Decl>(
+        func.return_type.base, func.return_type.modifiers, func.name);
+    func_decl->params_type = func.param_types;
     // 将库函数加入符号表
-    symbol_table->Insert(func_decl->name, nullptr, SymbolType::Func, false, func_decl->type.name);
+    symbol_table->Insert(func.name, nullptr, func.return_type, func.param_types);
     program->functions.push_back(std::move(func_decl));
   }
 
   // 遍历所有函数定义和全局变量声明
   for (auto& func_def_or_decl : ast->func_defs_or_decls) {
     if (dynamic_cast<FuncDefAST*>(func_def_or_decl.get())) {
-      current_func = std::make_unique<Function>();
       auto def = static_cast<FuncDefAST*>(func_def_or_decl.get());
-      auto func_type = static_cast<FuncTypeAST*>(def->func_type.get());
+      // 构建函数类型
+      TypeInfo func_type = TypeInfoModelToTypeInfo(def->func_type.get());
+      current_func = std::make_unique<Function>(func_type.base, func_type.modifiers, def->ident);
+      std::vector<TypeInfo> params_type;
+      for (auto& param : *(def->func_params)) {
+        params_type.push_back(TypeInfoModelToTypeInfo(param->type.get()));
+      }
       // 将函数加入到符号表中
-      symbol_table->Insert(def->ident, nullptr, SymbolType::Func, false, func_type->type);
+      symbol_table->Insert(def->ident, nullptr, 
+                           TypeInfoModelToTypeInfo(def->func_type.get()), 
+                           params_type);
       // 处理函数
       func_def_or_decl->Accept(this);
       program->functions.push_back(std::move(current_func));
@@ -122,30 +167,31 @@ void IRgenerator::Visit(CompUnitAST* ast) {
       for (auto& def : *(decl->var_def_list)) {
         auto var_def = static_cast<VarDefAST*>(def.get());
         std::vector<std::shared_ptr<Value>> init_vals;
-        SymbolType symbol_type = SymbolType::Var;
+        // 构建变量类型
+        TypeInfo var_type = TypeInfoModelToTypeInfo(decl->elem_type.get());
         switch (var_def->type) {
           case 0: {
+            // 普通变量，无初始化
             init_vals.push_back(std::make_shared<Value_INTEGER>(0));
-            symbol_type = SymbolType::Var;
             auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
-            name_manager->AllocateNamed(var_def->ident), init_vals);
-                  program->values.push_back(global_alloc);
-            symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type);
+                name_manager->AllocateNamed(var_def->ident), init_vals, var_type.base, var_type.modifiers);
+            program->values.push_back(global_alloc);
+            symbol_table->Insert(var_def->ident, global_alloc, var_type, false);
             break;
           }
           case 1: {
+            // 普通变量，有初始化
             auto exps = static_cast<InitValAST*>(var_def->var_exps.get());
             init_vals.push_back(std::make_shared<Value_INTEGER>(
-              global_var_computer.Evaluate(exps->exp.get())));
-              symbol_type = SymbolType::Var;
-              auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
-                    name_manager->AllocateNamed(var_def->ident), init_vals);
-              program->values.push_back(global_alloc);
-              symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type);
-              break;
-            }
+                global_var_computer.Evaluate(exps->exp.get())));
+            auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
+                name_manager->AllocateNamed(var_def->ident), init_vals, var_type.base, var_type.modifiers);
+            program->values.push_back(global_alloc);
+            symbol_table->Insert(var_def->ident, global_alloc, var_type, false);
+            break;
+          }
           case 2: {
-            // 1. 解析数组的初始化值，返回数组的初始化数组
+            // 数组变量，无初始化
             std::vector<std::shared_ptr<Value>> init_vals;
             std::vector<int> dims;
             // 解析数组维度
@@ -160,16 +206,20 @@ void IRgenerator::Visit(CompUnitAST* ast) {
             for (int i = 0; i < size; i++) {
               init_vals.push_back(std::make_shared<Value_INTEGER>(0));
             }
-            // 2. 插入符号表和IR
-            symbol_type = SymbolType::Array;
+            // 构建数组类型
+            TypeInfo array_type = var_type;
+            for (int d : dims) {
+              array_type.modifiers.push_back({TypeInfo::TypeKind::ARRAY, d});
+            }
+            // 插入符号表和IR
             auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
-                    name_manager->AllocateNamed(var_def->ident), init_vals, dims);
+                name_manager->AllocateNamed(var_def->ident), init_vals, array_type.base, array_type.modifiers);
             program->values.push_back(global_alloc);
-            symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type, dims);
+            symbol_table->Insert(var_def->ident, global_alloc, array_type, false);
             break;
           }
           case 3: {
-            // 1. 解析数组的初始化值，返回数组的初始化数组
+            // 数组变量，有初始化
             std::vector<std::shared_ptr<Value>> init_vals;
             std::vector<int> dims;
             // 解析数组维度
@@ -187,12 +237,16 @@ void IRgenerator::Visit(CompUnitAST* ast) {
             while (init_vals.size() < size) {
               init_vals.push_back(std::make_shared<Value_INTEGER>(0));
             }
-            // 2. 插入符号表和IR
-            symbol_type = SymbolType::Array;
+            // 构建数组类型
+            TypeInfo array_type = var_type;
+            for (int d : dims) {
+              array_type.modifiers.push_back({TypeInfo::TypeKind::ARRAY, d});
+            }
+            // 插入符号表和IR
             auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
-                    name_manager->AllocateNamed(var_def->ident), init_vals, dims);
+                name_manager->AllocateNamed(var_def->ident), init_vals, array_type.base, array_type.modifiers);
             program->values.push_back(global_alloc);
-            symbol_table->Insert(var_def->ident, global_alloc, symbol_type, false, decl->elem_type, dims);
+            symbol_table->Insert(var_def->ident, global_alloc, array_type, false);
             break;
           }
           default:
@@ -203,14 +257,17 @@ void IRgenerator::Visit(CompUnitAST* ast) {
       auto decl = static_cast<ConstDeclAST*>(func_def_or_decl.get());
       // 处理全局常量声明（常量不需要分配内存，直接存储值）
       ExpComputer global_var_computer(symbol_table.get());
+      // 构建基础类型
+      TypeInfo base_type = TypeInfoModelToTypeInfo(decl->elem_type.get());
       for (auto& def : *(decl->const_def_list)) {
         auto const_def = static_cast<ConstDefAST*>(def.get());
         switch (const_def->type) {
           case 0: {
+            // 普通常量
             auto exps = static_cast<ConstInitValAST*>(const_def->const_exps.get());
             auto const_value = std::make_shared<Value_INTEGER>(
                       global_var_computer.Evaluate(exps->exp.get()));
-            symbol_table->Insert(const_def->ident, const_value, SymbolType::Var, true, decl->elem_type);
+            symbol_table->Insert(const_def->ident, const_value, base_type, true);
             break;
           }
           case 1: {
@@ -224,11 +281,16 @@ void IRgenerator::Visit(CompUnitAST* ast) {
             // 解析初始化列表
             auto exps = static_cast<ConstInitValAST*>(const_def->const_exps.get());
             ParseArrayInitVals(exps, init_vals, dims, 0);
+            // 构建数组类型
+            TypeInfo array_type = base_type;
+            for (int d : dims) {
+              array_type.modifiers.push_back({TypeInfo::TypeKind::ARRAY, d});
+            }
             // 2. 将数组加入符号表
             auto global_alloc = std::make_shared<Value_GLOBOL_ALLOC>(
-                name_manager->AllocateNamed(const_def->ident), init_vals, dims);
+                name_manager->AllocateNamed(const_def->ident), init_vals, array_type.base, array_type.modifiers);
             program->values.push_back(global_alloc);
-            symbol_table->Insert(const_def->ident, global_alloc, SymbolType::Array, true, decl->elem_type, dims);
+            symbol_table->Insert(const_def->ident, global_alloc, array_type, true);
             break;
           }
           default:
@@ -239,29 +301,34 @@ void IRgenerator::Visit(CompUnitAST* ast) {
   }
 }
 
-void IRgenerator::Visit(FuncTypeAST* ast) {
-  LOG("FuncTypeAST");
-  // std::cout << "FuncTypeAST { " << ast->type << " }" << std::endl;
-  current_func->type = Type(ast->type);
-}
-
 void IRgenerator::Visit(FuncDefAST* ast) {
   LOG("FuncDefAST");
-  // std::cout << "FuncDefAST { " << ast->type << " }" << std::endl;
   current_block = std::make_unique<BasicBlock>("entry");
-  ast->func_type->Accept(this);
+  current_func->return_type = TypeInfoModelToTypeInfo(ast->func_type.get());
   current_func->name = ast->ident;
   // 访问block中的语句，构造current_block
   auto block = static_cast<BlockAST*>(ast->block.get());
   symbol_table->Push();
   if (ast->func_params) {
     for (auto& param : *ast->func_params) {
-      // 将函数参数加入符号表
-      auto param_ref = std::make_shared<Value_FUNC_ARG_REF>(name_manager->AllocateNamed(param->ident), param->type);
-      auto val = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint(param->ident), param->type);
+      // 转换参数类型
+      TypeInfo param_type = TypeInfoModelToTypeInfo(param->type.get());
+      
+      // 将函数参数加入符号表，函数参数作为一个值的引用
+      auto param_ref = std::make_shared<Value_FUNC_ARG_REF>(
+          name_manager->AllocateNamed(param->ident), param_type.toKoopaString(), param_type.base, param_type.modifiers);
+      
+      // 获取数组维度（如果有）
+      std::vector<int> dims = param_type.getArrayDims();
+      
+      // 为参数分配本地存储
+      auto val = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint(param->ident), param_type.base, param_type.modifiers);
       current_block->stmts.push_back(val);
       current_block->stmts.push_back(std::make_shared<Value_STORE>(param_ref, val));
-      symbol_table->Insert(param->ident, val, SymbolType::Func, false, param->type);
+      
+      // 插入符号表
+      symbol_table->Insert(param->ident, val, param_type, false);
+      
       // 将参数加入到current_func的参数列表中
       current_func->params.push_back(param_ref);
     }
@@ -274,7 +341,7 @@ void IRgenerator::Visit(FuncDefAST* ast) {
   }
   if (!current_block->IsTerminated()) {
     // 如果函数没有以return结尾，添加一个默认的return 0
-    if (current_func->type.name == "void") {
+    if (current_func->return_type.base == BaseType::VOID) {
       current_block->stmts.push_back(std::make_shared<Value_RETURN>(nullptr));
     } else {
       std::cerr << "warning: Non-void function does not end with return, adding default return 0" << std::endl;
@@ -323,7 +390,7 @@ void IRgenerator::Visit(StmtAST* ast) {
         assert(0);
       }
       // 2. 判断lval是否为常量
-      auto symbol = symbol_table->FindSymbol(lval->ident);
+      auto symbol = static_cast<VariableSymbol*>(symbol_table->FindSymbol(lval->ident));
       if (symbol->is_const) {
         std::cerr << "error : " << lval->ident << " is const" << std::endl;
         assert(0);
@@ -342,8 +409,8 @@ void IRgenerator::Visit(StmtAST* ast) {
         current_block->stmts.push_back(std::make_shared<Value_STORE>(val, variable));
       } else {
         // 数组元素：支持多维索引
-        auto array_symbol = static_cast<SymbolArray*>(symbol);
-        assert(array_symbol != nullptr);
+        // 从符号表中获取数组维度
+        std::vector<int> dims = symbol->type.getArrayDims();
         // 1. 先计算所有索引值
         std::vector<std::shared_ptr<Value>> indices;
         for (auto& index_ast : *(lval->array_index)) {
@@ -356,8 +423,8 @@ void IRgenerator::Visit(StmtAST* ast) {
         for (size_t i = 0; i < indices.size(); i++) {
           // 计算 elem_size：剩余维度的乘积 * 4
           int elem_size = 4;
-          for (size_t j = i + 1; j < array_symbol->dims.size(); j++) {
-            elem_size *= array_symbol->dims[j];
+          for (size_t j = i + 1; j < dims.size(); j++) {
+            elem_size *= dims[j];
           }
           auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), current_ptr, indices[i], elem_size);
           current_block->stmts.push_back(get_elem_ptr);
@@ -376,25 +443,24 @@ void IRgenerator::Visit(StmtAST* ast) {
     case Stmt_Type::AST_STMT_IF_ELSE: {
       auto& if_else_stmt = std::get<StmtAST::IfElse_STMT>(ast->stmt);
       
-      // Step 1: 计算条件表达式
+      // 1. 计算条件表达式
       if_else_stmt.exp->Accept(this);
       assert(!current_value_stack.empty());
       auto cond_val = current_value_stack.top();
       current_value_stack.pop();
       
-      // Step 2: 生成基本块名称
+      // 2. 生成基本块名称
       std::string then_name = name_manager->AllocateLabel("then");
       std::string end_name = name_manager->AllocateLabel("end");
       std::string else_name = if_else_stmt.else_stmt != nullptr 
                               ? name_manager->AllocateLabel("else")
                               : end_name;
       
-      // Step 3: 生成分支指令
+      // 3. 生成分支指令
       //   br %cond, %then, %else (或 %end 如果没有else)
       current_block->stmts.push_back(std::make_shared<Value_BRANCH>(cond_val, then_name, else_name));
       current_func->blocks.push_back(std::move(current_block));
-      
-      // Step 4: 生成 then 基本块
+      // 4. 生成 then 基本块
       //   ... if语句体 ...
       //   jump %end (如果不是return结尾)
       current_block = std::make_unique<BasicBlock>(then_name);
@@ -403,8 +469,7 @@ void IRgenerator::Visit(StmtAST* ast) {
         current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
       }
       current_func->blocks.push_back(std::move(current_block));
-      
-      // Step 5: 生成 else 基本块 (如果有)
+      // 5. 生成 else 基本块 (如果有)
       //   ... else语句体 ...
       //   jump %end (如果不是return结尾)
       if (if_else_stmt.else_stmt != nullptr) {
@@ -416,7 +481,7 @@ void IRgenerator::Visit(StmtAST* ast) {
         current_func->blocks.push_back(std::move(current_block));
       }
       
-      // Step 6: 生成 end 基本块
+      // 6. 生成 end 基本块
       current_block = std::make_unique<BasicBlock>(end_name);
       break;
     }
@@ -433,7 +498,7 @@ void IRgenerator::Visit(StmtAST* ast) {
       current_block->stmts.push_back(std::make_shared<Value_JUMP>(while_entry));
       current_func->blocks.push_back(std::move(current_block));
       
-      // 3. 生成个基本快
+      // 3. 生成基本块
       // 生成entry基本块
       current_block = std::make_unique<BasicBlock>(while_entry);
       while_stmt.exp->Accept(this);
@@ -526,7 +591,7 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     //   return result;
     auto& l_or = std::get<LOrExpAST::LOrExp>(ast->mem);
 
-    // Step 1: 只计算 lhs
+    // 1. 只计算 lhs
     l_or.l_or_exp->Accept(this);
     auto lhs_val = current_value_stack.top();
     current_value_stack.pop();
@@ -553,13 +618,14 @@ void IRgenerator::Visit(LOrExpAST* ast) {
       return;
     }
     
-    // Step 2: 分配临时变量，默认值为 1 (true)
-    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
-    symbol_table->Insert(alloc->name, alloc, SymbolType::Var, false, "i32");
+    // 2. 分配临时变量，默认值为 1 (true)
+    TypeInfo int_type(BaseType::INT, {});
+    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), int_type.base, int_type.modifiers);
+    symbol_table->Insert(alloc->name, alloc, int_type, false);
     current_block->stmts.push_back(alloc);
     current_block->stmts.push_back(std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(1), alloc));
     
-    // Step 3: 生成分支指令
+    // 3. 生成分支指令
     auto then_name = name_manager->AllocateLabel("then");
     auto end_name = name_manager->AllocateLabel("end");
     auto eq = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), lhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_EQ);
@@ -567,7 +633,7 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     current_block->stmts.push_back(std::make_shared<Value_BRANCH>(eq, then_name, end_name));
     current_func->blocks.push_back(std::move(current_block));
     
-    // Step 4: 生成 then 基本块 (lhs 为 false 时才计算 rhs)
+    // 4. 生成 then 基本块 (lhs 为 false 时才计算 rhs)
     current_block = std::make_unique<BasicBlock>(then_name);
     l_or.l_and_exp->Accept(this);  // 在 then 块中计算 rhs
     auto rhs_val = current_value_stack.top();
@@ -578,7 +644,7 @@ void IRgenerator::Visit(LOrExpAST* ast) {
     current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
     current_func->blocks.push_back(std::move(current_block));
     
-    // Step 5: 生成 end 基本块
+    // 5. 生成 end 基本块
     current_block = std::make_unique<BasicBlock>(end_name);
     auto load = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), alloc);
     current_block->stmts.push_back(load);
@@ -600,7 +666,7 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     //   return result;
     auto& l_and = std::get<LAndExpAST::LAndExp>(ast->mem);
 
-    // Step 1: 只计算 lhs
+    // 1. 只计算 lhs
     l_and.l_and_exp->Accept(this);
     auto lhs_val = current_value_stack.top();
     current_value_stack.pop();
@@ -627,13 +693,14 @@ void IRgenerator::Visit(LAndExpAST* ast) {
       return;
     }
 
-    // Step 2: 分配临时变量，默认值为 0 (false)
-    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), "i32");
-    symbol_table->Insert(alloc->name, alloc, SymbolType::Var, false, "i32");
+    // 2. 分配临时变量，默认值为 0 (false)
+    TypeInfo int_type(BaseType::INT, {});
+    auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateTempHint("result"), int_type.base, int_type.modifiers);
+    symbol_table->Insert(alloc->name, alloc, int_type, false);
     current_block->stmts.push_back(alloc);
     current_block->stmts.push_back(std::make_shared<Value_STORE>(std::make_shared<Value_INTEGER>(0), alloc));
     
-    // Step 3: 生成分支指令
+    // 3. 生成分支指令
     auto then_name = name_manager->AllocateLabel("then");
     auto end_name = name_manager->AllocateLabel("end");
     auto ne = std::make_shared<Value_BINARY>(name_manager->AllocateTemp(), lhs_val, std::make_shared<Value_INTEGER>(0), Binary_Op_Type::KOOPA_RBO_NOT_EQ);
@@ -641,7 +708,7 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     current_block->stmts.push_back(std::make_shared<Value_BRANCH>(ne, then_name, end_name));
     current_func->blocks.push_back(std::move(current_block));
     
-    // Step 4: 生成 then 基本块 (lhs 为 true 时才计算 rhs)
+    // 4. 生成 then 基本块 (lhs 为 true 时才计算 rhs)
     current_block = std::make_unique<BasicBlock>(then_name);
     l_and.eq_exp->Accept(this);  // 在 then 块中计算 rhs
     auto rhs_val = current_value_stack.top();
@@ -652,7 +719,7 @@ void IRgenerator::Visit(LAndExpAST* ast) {
     current_block->stmts.push_back(std::make_shared<Value_JUMP>(end_name));
     current_func->blocks.push_back(std::move(current_block));
     
-    // Step 5: 生成 end 基本块
+    // 5. 生成 end 基本块
     current_block = std::make_unique<BasicBlock>(end_name);
     auto load = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), alloc);
     current_block->stmts.push_back(load);
@@ -914,7 +981,8 @@ void IRgenerator::Visit(ConstDeclAST* ast) {
       ExpComputer computer(symbol_table.get());
       int val = computer.Evaluate(const_def->const_exps.get());
       auto const_val = std::make_shared<Value_INTEGER>(val);
-      symbol_table->Insert(const_def->ident, const_val, SymbolType::Var, true, ast->elem_type);
+      TypeInfo const_type = TypeInfoModelToTypeInfo(ast->elem_type.get());
+      symbol_table->Insert(const_def->ident, const_val, const_type, true);
       break;
     }
     case 1: {
@@ -931,10 +999,14 @@ void IRgenerator::Visit(ConstDeclAST* ast) {
         total_size *= d;
       }
       // 2. 生成alloc指令
-      auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(const_def->ident), ast->elem_type, dims);
+      TypeInfo array_type = TypeInfoModelToTypeInfo(ast->elem_type.get());
+      for (int d : dims) {
+        array_type.modifiers.push_back({TypeInfo::TypeKind::ARRAY, d});
+      }
+      auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(const_def->ident), array_type.base, array_type.modifiers);
       current_block->stmts.push_back(alloc);
       // 插入符号表
-      symbol_table->Insert(const_def->ident, alloc, SymbolType::Array, true, ast->elem_type, dims);
+      symbol_table->Insert(const_def->ident, alloc, array_type, true);
       // 3. 解析初始化列表（支持嵌套）
       std::vector<std::shared_ptr<Value>> init_vals;
       auto init_ast = static_cast<ConstInitValAST*>(const_def->const_exps.get());
@@ -986,45 +1058,48 @@ void IRgenerator::Visit(ConstDefAST* ast) {
 void IRgenerator::Visit(LValAST* ast) {
   LOG("LValAST");
   auto val = symbol_table->FindValue(ast->ident);
-  if (!symbol_table->FindSymbol(ast->ident)->is_const || symbol_table->FindSymbol(ast->ident)->symbol_type != SymbolType::Var) {
-    if (ast->type == 0) {
-      /// 载入变量，生成load指令
+  auto symbol = symbol_table->FindSymbol(ast->ident);
+  auto var_symbol = static_cast<VariableSymbol*>(symbol);
+  
+  if (ast->type == 0) {
+    // 普通变量
+    if (var_symbol->is_const) {
+      // 常量直接压入值
+      current_value_stack.push(val);
+    } else {
+      // 非常量变量，生成load指令
       auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), val);
       current_block->stmts.push_back(load_val);
-      /// 压入load的结果
-      current_value_stack.push(load_val);
-    } else {
-      // 数组元素读取：支持多维索引
-      auto symbol = static_cast<SymbolArray*>(symbol_table->FindSymbol(ast->ident));
-      // 1. 先计算所有索引值
-      auto index_list = static_cast<std::vector<std::unique_ptr<BaseAST>>*>(ast->array_index.get());
-      std::vector<std::shared_ptr<Value>> indices;
-      for (auto& index_ast : *index_list) {
-        index_ast->Accept(this);
-        indices.push_back(current_value_stack.top());
-        current_value_stack.pop();
-      }
-      // 2. 生成 getelemptr 指令链
-      std::shared_ptr<Value> current_ptr = val;
-      for (size_t i = 0; i < indices.size(); i++) {
-        // 计算 elem_size：剩余维度的乘积 * 4
-        int elem_size = 4;
-        for (size_t j = i + 1; j < symbol->dims.size(); j++) {
-          elem_size *= symbol->dims[j];
-        }
-        auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), current_ptr, indices[i], elem_size);
-        current_block->stmts.push_back(get_elem_ptr);
-        current_ptr = get_elem_ptr;
-      }
-      // 3. 生成 load 指令
-      auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), current_ptr);
-      current_block->stmts.push_back(load_val);
-      // 4. 压入load的结果
       current_value_stack.push(load_val);
     }
   } else {
-    /// 常量直接压入值
-    current_value_stack.push(val);
+    // 数组元素读取：支持多维索引（常量和非常量数组都需要 getelemptr + load）
+    // 1. 先计算所有索引值
+    auto index_list = static_cast<std::vector<std::unique_ptr<BaseAST>>*>(ast->array_index.get());
+    std::vector<std::shared_ptr<Value>> indices;
+    for (auto& index_ast : *index_list) {
+      index_ast->Accept(this);
+      indices.push_back(current_value_stack.top());
+      current_value_stack.pop();
+    }
+    // 2. 生成 getelemptr 指令链
+    std::shared_ptr<Value> current_ptr = val;
+    std::vector<int> dims = var_symbol->type.getArrayDims();
+    for (size_t i = 0; i < indices.size(); i++) {
+      // 计算 elem_size：剩余维度的乘积 * 4
+      int elem_size = 4;
+      for (size_t j = i + 1; j < dims.size(); j++) {
+        elem_size *= dims[j];
+      }
+      auto get_elem_ptr = std::make_shared<Value_GET_ELEM_PTR>(name_manager->AllocateTemp(), current_ptr, indices[i], elem_size);
+      current_block->stmts.push_back(get_elem_ptr);
+      current_ptr = get_elem_ptr;
+    }
+    // 3. 生成 load 指令
+    auto load_val = std::make_shared<Value_LOAD>(name_manager->AllocateTemp(), current_ptr);
+    current_block->stmts.push_back(load_val);
+    // 4. 压入load的结果
+    current_value_stack.push(load_val);
   }
 }
 
@@ -1037,7 +1112,7 @@ void IRgenerator::Visit(OpAST* ast) {
 
 void IRgenerator::Visit(VarDefAST* ast) {
   LOG("VarDefAST");
-  // 上一层直接处理了，所以应该不会到达这里
+  // NEVER REACH HERE
 }
 
 void IRgenerator::Visit(VarDeclAST* ast) {
@@ -1045,17 +1120,19 @@ void IRgenerator::Visit(VarDeclAST* ast) {
   // VarDef
   for (auto& item : *(ast->var_def_list)) {
     auto var_def = static_cast<VarDefAST*>(item.get());
+    // 构建变量类型
+    TypeInfo var_type = TypeInfoModelToTypeInfo(ast->elem_type.get());
     switch (var_def->type) {
       case 0: {
-        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type);
+        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), var_type.base, var_type.modifiers);
         current_block->stmts.push_back(alloc);
         // 在符号表中插入变量
-        symbol_table->Insert(var_def->ident, alloc, SymbolType::Var, false, ast->elem_type);
+        symbol_table->Insert(var_def->ident, alloc, var_type, false);
         break;
       }
       case 1: {
         // 生成alloc指令
-        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type);
+        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), var_type.base, var_type.modifiers);
         current_block->stmts.push_back(alloc);
         // 初始化变量
         auto exp = static_cast<InitValAST*>(var_def->var_exps.get());
@@ -1065,7 +1142,7 @@ void IRgenerator::Visit(VarDeclAST* ast) {
         current_block->stmts.push_back(store);
         current_value_stack.pop();
         // 在符号表中插入变量
-        symbol_table->Insert(var_def->ident, alloc, SymbolType::Var, false, ast->elem_type);
+        symbol_table->Insert(var_def->ident, alloc, var_type, false);
         break;
       }
       case 2:
@@ -1082,11 +1159,16 @@ void IRgenerator::Visit(VarDeclAST* ast) {
         for (int d : dims) {
           total_size *= d;
         }
+        // 构建数组类型
+        TypeInfo array_type = TypeInfoModelToTypeInfo(ast->elem_type.get());
+        for (int d : dims) {
+          array_type.modifiers.push_back({TypeInfo::TypeKind::ARRAY, d});
+        }
         // 2. 生成alloc指令
-        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), ast->elem_type, dims);
+        auto alloc = std::make_shared<Value_ALLOC>(name_manager->AllocateNamed(var_def->ident), array_type.base, array_type.modifiers);
         current_block->stmts.push_back(alloc);
         // 插入符号表
-        symbol_table->Insert(var_def->ident, alloc, SymbolType::Array, false, ast->elem_type, dims);
+        symbol_table->Insert(var_def->ident, alloc, array_type, false);
         // 3. 准备初始化值列表
         std::vector<std::shared_ptr<Value>> init_vals;
         if (var_def->type == 3) {
@@ -1165,8 +1247,8 @@ void IRgenerator::Visit(FuncCallAST* ast) {
   }
   // 2. 生成call指令
   // 查看函数的返回值类型，如果是void则不需要处理返回值
-  auto func_symbol = symbol_table->FindSymbol(ast->ident);
-  if (func_symbol->elem_type != "void") {
+  auto func_symbol = static_cast<FunctionSymbol*>(symbol_table->FindSymbol(ast->ident));
+  if (func_symbol->return_type.base != BaseType::VOID) {
     // 有返回值：分配一个临时符号作为返回值名字
     auto ret_name = name_manager->AllocateTemp();
     auto call_val = std::make_shared<Value_Call>(ret_name, "@" + ast->ident, args);
@@ -1182,13 +1264,13 @@ void IRgenerator::Visit(FuncCallAST* ast) {
 
 
 void IRgenerator::OutputIR(std::string output) {
-  IROutputer out(output, std::move(symbol_table));
+  IROutputer out(output);
   program->Accept(&out);
 }
 
 IROutputer::IROutputer() {}
 
-IROutputer::IROutputer(std::string output, std::unique_ptr<SymbolTable> symbol_table) : fs(output, std::ios::out), symbol_table(std::move(symbol_table)) {}
+IROutputer::IROutputer(std::string output) : fs(output, std::ios::out) {}
 
 IROutputer::~IROutputer() {}
 
@@ -1271,14 +1353,14 @@ void IROutputer::Visit(Function* func) {
   fs << "fun @" << func->name << "(";
   for (size_t i = 0; i < func->params.size(); ++i) {
     auto param = static_cast<Value_FUNC_ARG_REF*>(func->params[i].get());
-    fs << param->name << ": " << param->elem_type;
+    fs << param->name << ": " << param->elem_type.toKoopaString();
     if (i != func->params.size() - 1) {
       fs << ", ";
     }
   }
   fs << ")";
-  if (func->type.name != "void") {
-    fs << ": " << func->type.name;
+  if (func->return_type.base != BaseType::VOID) {
+    fs << ": " << func->return_type.toKoopaString();
   }
   fs << " {" << std::endl;
   for (auto& block : func->blocks) {
@@ -1290,14 +1372,14 @@ void IROutputer::Visit(Function* func) {
 void IROutputer::Visit(Function_Decl *func_decl) {
   fs << "decl @" << func_decl->name << "(";
   for (size_t i = 0; i < func_decl->params_type.size(); ++i) {
-    fs << func_decl->params_type[i];
+    fs << func_decl->params_type[i].toKoopaString();
     if (i != func_decl->params_type.size() - 1) {
       fs << ", ";
     }
   }
   fs << ")";
-  if (func_decl->type.name != "void") {
-    fs << ": " << func_decl->type.name;
+  if (func_decl->return_type.base != BaseType::VOID) {
+    fs << ": " << func_decl->return_type.toKoopaString();
   }
   fs << std::endl;
 }
@@ -1313,18 +1395,13 @@ void IROutputer::Visit(Program* program) {
 }
 
 void IROutputer::Visit(Value_ALLOC* alloc) {
-  if (alloc->dims.empty()) {
-    fs << "  " << alloc->name << " = alloc " << alloc->elem_type << std::endl;
+  std::vector<int> dims = alloc->elem_type.getArrayDims();
+  if (dims.empty()) {
+    fs << "  " << alloc->name << " = alloc " << alloc->elem_type.toKoopaString() << std::endl;
   } else {
     // 多维数组：嵌套输出类型，如 [[i32, 3], 2] 表示 2x3 数组
     fs << "  " << alloc->name << " = alloc ";
-    for (int i = alloc->dims.size() - 1; i >= 0; i--) {
-      fs << "[";
-    }
-    fs << alloc->elem_type;
-    for (int i = alloc->dims.size() - 1; i >= 0; i--) {
-      fs << ", " << alloc->dims[i] << "]";
-    }
+    fs << alloc->elem_type.toKoopaString();
     fs << std::endl;
   }
 }
@@ -1400,22 +1477,17 @@ void IROutputer::OutputArrayInit(const std::vector<std::shared_ptr<Value>>& init
 
 void IROutputer::Visit(Value_GLOBOL_ALLOC* glob_alloc) {
   fs << "global " << glob_alloc->name << " = alloc ";
-  if (glob_alloc->dims.empty()) {
+  std::vector<int> dims = glob_alloc->elem_type.getArrayDims();
+  if (dims.empty()) {
     // 普通变量
-    fs << "i32, "<< glob_alloc->init[0]->name;
+    fs << glob_alloc->elem_type.toKoopaString() << ", "<< glob_alloc->init[0]->name;
   } else {
     // 数组
-    for (int i = glob_alloc->dims.size() - 1; i >= 0; --i) {
-      fs << "[";
-    }
-    fs << "i32";
-    for (int i = glob_alloc->dims.size() - 1; i >= 0; --i) {
-      fs << ", " << glob_alloc->dims[i] << "]";
-    }
+    fs << glob_alloc->elem_type.toKoopaString();
     fs << ", ";
     // 递归输出多维数组初始化值
     int index = 0;
-    OutputArrayInit(glob_alloc->init, glob_alloc->dims, 0, fs, index);
+    OutputArrayInit(glob_alloc->init, dims, 0, fs, index);
   }
   fs << std::endl;
 }
@@ -1439,7 +1511,8 @@ int ExpComputer::Evaluate(BaseAST* ast) {
 
 void ExpComputer::Visit(LValAST* ast) {
   auto symbol = symbol_table->FindSymbol(ast->ident);
-  if (symbol && symbol->is_const) {
+  auto var_symbol = static_cast<VariableSymbol*>(symbol);
+  if (symbol && var_symbol->is_const) {
     auto val = symbol->value;
     if (val && val->type == Value_Type::KOOPA_RVT_INTEGER) {
       val_stack->push(static_cast<Value_INTEGER*>(val.get())->val);
@@ -1646,8 +1719,6 @@ void ExpComputer::Visit(FuncCallAST* ast) {}
 void ExpComputer::Visit(OpAST* ast) {}
 
 void ExpComputer::Visit(CompUnitAST* ast) {}
-
-void ExpComputer::Visit(FuncTypeAST* ast) {}
 
 void ExpComputer::Visit(FuncDefAST* ast) {}
 
