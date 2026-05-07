@@ -1,11 +1,25 @@
-const int garr[10] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+int a = 10;
+
+int inc() {
+  a = a + 1;
+  return a;
+}
+
+void print_a() {
+  putint(a);
+  putch(10);
+}
 
 int main() {
-  const int arr[10] = {1, 2, 3, 4, 5};
-  int i = 0, sum = 0;
+  int i = 0;
   while (i < 10) {
-    sum = sum + arr[i] + garr[i];
+    inc();
+    int a = 1;
+    a = a + 2;
+    putint(a);
+    putch(10);
+    print_a();
     i = i + 1;
   }
-  return sum;
+  return 0;
 }

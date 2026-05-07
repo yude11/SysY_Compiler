@@ -89,14 +89,8 @@ class IROutputer : public IRVisitor {
     void Visit(Value_BINARY* binary) override;
     void Visit(Value_ALLOC* alloc) override;
     void Visit(Value_GLOBOL_ALLOC* glob_alloc) override;
+    void Visit(Value_GET_PTR* get_ptr) override;
     void Visit(Value_GET_ELEM_PTR* get_elem_ptr) override;
-    
-    // 辅助函数：递归输出多维数组初始化值
-    void OutputArrayInit(const std::vector<std::shared_ptr<Value>>& init, 
-                         const std::vector<int>& dims, 
-                         int level, 
-                         std::fstream& fs,
-                         int& index);
     void Visit(Value_LOAD* load) override;
     void Visit(Value_Call* call) override;
     void Visit(Value_STORE* store) override;
@@ -106,6 +100,13 @@ class IROutputer : public IRVisitor {
     void Visit(Function_Decl* func_decl) override;
     void Visit(Function* func) override;
     void Visit(Program* program) override;
+
+    // 辅助函数：递归输出多维数组初始化值
+    void OutputArrayInit(const std::vector<std::shared_ptr<Value>>& init, 
+                         const std::vector<int>& dims, 
+                         int level, 
+                         std::fstream& fs,
+                         int& index);
 
     std::fstream fs;
 };

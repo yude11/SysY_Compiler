@@ -222,13 +222,30 @@ void AssemblyGenerator::Visit(Value_RETURN *return_val) {
   }
   // 处理返回值
   if (return_val->val == nullptr) {
+    if (IsValidOffset(reg_allocator->stack_offset)) {
+      fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
+    } else {
+      auto temp = std::make_shared<Value_INTEGER>(0);
+      std::string offset_reg = reg_allocator->Alloc(temp.get());
+      fs << " li    " << offset_reg << ", " << reg_allocator->stack_offset << std::endl;
+      fs << " add   sp, sp, " << offset_reg << std::endl;
+    }
+    reg_allocator->ClearTempRegs();
     fs << " ret" << std::endl;
     return;
   }
   // 处理返回值寄存器, 返回值要存到寄存器a0
   LoadValueToReg(return_val->val.get(), "a0");
-  reg_allocator->ClearTempRegs();
+  if (IsValidOffset(reg_allocator->stack_offset)) {
+    fs << " addi  sp, sp, " << reg_allocator->stack_offset << std::endl;
+  } else {
+    auto temp = std::make_shared<Value_INTEGER>(0);
+    std::string offset_reg = reg_allocator->Alloc(temp.get());
+    fs << " li    " << offset_reg << ", " << reg_allocator->stack_offset << std::endl;
+    fs << " add   sp, sp, " << offset_reg << std::endl;
+  }
   fs << " ret" << std::endl;
+  reg_allocator->ClearTempRegs();
 }
 
 void AssemblyGenerator::Visit(Value_BINARY *binary) {
@@ -317,7 +334,6 @@ void AssemblyGenerator::Visit(Value_INTEGER *integer) {
 void AssemblyGenerator::Visit(Value_LOAD *load) {
   // %0 = load @a
   LOG("Value_LOAD");
-  
   int offset = reg_allocator->GetLoc(load);
   auto temp_val = std::make_shared<Value_INTEGER>(0);
   auto result_reg = reg_allocator->Alloc(temp_val.get());
@@ -396,4 +412,9 @@ void AssemblyGenerator::Visit(Value_GET_ELEM_PTR* get_elem_ptr) {
   fs << " add   " << base_reg << ", " << base_reg << ", " << size_reg << std::endl;
   StoreWord(base_reg, reg_allocator->GetLoc(get_elem_ptr));
   reg_allocator->ClearTempRegs();
+}
+
+void AssemblyGenerator::Visit(Value_GET_PTR* get_ptr) {
+  // 访问获取指针指令 getptr %0 = @a
+  LOG("Value_GET_PTR");
 }

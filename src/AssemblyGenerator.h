@@ -159,14 +159,15 @@ public:
       for (auto& stmt : block->stmts) {
         switch (stmt->type) {
           case Value_Type::KOOPA_RVT_ALLOC: {
-            LOG("Alloc");
+            LOG("Alloc" + std::to_string(stack_offset));
             value_to_stack[stmt.get()] = stack_offset;
             where_is_value[stmt.get()] = 2;  // 标记为在栈中
             auto alloc = static_cast<Value_ALLOC*>(stmt.get());
-            std::vector<int> dims = alloc->elem_type.getArrayDims();
-            if (dims.empty()) {
+            if (alloc->type_info.modifiers.size() < 2) {
+              LOG("Alloc non-array, offset=" + std::to_string(stack_offset));
               stack_offset += 4;  // 单个变量
             } else {
+              std::vector<int> dims = alloc->type_info.getArrayDims();
               int size = 1;
               for (int dim : dims) {
                 size *= dim;
@@ -276,6 +277,7 @@ class AssemblyGenerator : public IRVisitor {
     void Visit(Value_BINARY* binary) override;
     void Visit(Value_ALLOC* alloc) override;
     void Visit(Value_GLOBOL_ALLOC* glob_alloc) override;
+    void Visit(Value_GET_PTR* get_ptr) override;
     void Visit(Value_GET_ELEM_PTR* get_elem_ptr) override;
     void Visit(Value_LOAD* load) override;
     void Visit(Value_Call* call) override;

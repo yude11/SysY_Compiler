@@ -252,6 +252,7 @@ Stmt
   | RETURN ';' {
     auto ast = new StmtAST();
     ast->type = Stmt_Type::AST_STMT_RETURN;
+    ast->stmt = std::make_unique<NullAST>();
     $$ = ast;
   }
   | LVal '=' Exp ';' {

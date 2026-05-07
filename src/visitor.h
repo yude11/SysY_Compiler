@@ -82,6 +82,7 @@ class Value_BINARY;
 class Value_ALLOC;
 class Value_GLOBOL_ALLOC;
 class Value_GET_ELEM_PTR;
+class Value_GET_PTR;
 class Value_LOAD;
 class Value_STORE;
 class Value_BRANCH;
@@ -105,6 +106,7 @@ class IRVisitor : public Visitor {
     virtual void Visit(Value_FUNC_ARG_REF* ref) = 0;
     virtual void Visit(Value_ALLOC* alloc) = 0;
     virtual void Visit(Value_GLOBOL_ALLOC* glob_alloc) = 0;
+    virtual void Visit(Value_GET_PTR* get_ptr) = 0;
     virtual void Visit(Value_GET_ELEM_PTR* get_elem_ptr) = 0;
     virtual void Visit(Value_LOAD* load) = 0;
     virtual void Visit(Value_STORE* store) = 0;
