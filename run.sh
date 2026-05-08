@@ -6,7 +6,7 @@ mode=${2:-ir}
 if [ "$action" = "run" ]; then
   if [ "$mode" = "ir" ]; then
     build/compiler -koopa test/hello.c -o result/hello.koopa
-    # cat result/hello.koopa
+    cat result/hello.koopa
   elif [ "$mode" = "asm" ]; then
     build/compiler -riscv test/hello.c -o result/hello.asm
     cat result/hello.asm

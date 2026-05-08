@@ -1,51 +1,113 @@
-# 基于 CMake 的 SysY 编译器项目模板
+# SysY Compiler
 
-该仓库中存放了一个基于 CMake 的 SysY 编译器项目的模板, 你可以在该模板的基础上进行进一步的开发.
+将 SysY 语言（C 语言子集）编译为 Koopa IR，再生成 RISC-V 汇编代码的编译器实现。
 
-该仓库中的 C/C++ 代码实现仅作为演示, 不代表你的编译器必须以此方式实现. 如你需要使用该模板, 建议你删掉所有 C/C++ 源文件, 仅保留 `CMakeLists.txt` 和必要的目录结构, 然后重新开始实现.
+## 功能特性
 
-该模板仅供不熟悉 CMake 的同学参考, 在理解基本原理的基础上, 你完全可以不使用模板完成编译器的实现. 如你决定不使用该模板并自行编写 CMake, 请参考 [“评测平台要求”](#评测平台要求) 部分.
+- **词法/语法分析**：基于 Flex + Bison，完整支持 SysY 文法
+- **语义分析**：常量折叠、类型检查、作用域管理
+- **IR 生成**：自建内存 IR，生成符合 Koopa IR 规范的中间表示
+- **RISC-V 汇编生成**：从 IR 生成 RISC-V 32 位汇编
 
-## 使用方法
+## 项目结构
 
-首先 clone 本仓库:
-
-```sh
-git clone https://github.com/pku-minic/sysy-cmake-template.git
+```
+├── src/
+│   ├── sysy.l                  # Flex 词法分析器定义
+│   ├── sysy.y                  # Bison 语法分析器定义
+│   ├── AST.h                   # 抽象语法树节点定义
+│   ├── visitor.h               # AST / IR 访问者模式接口
+│   ├── type.h                  # 类型系统（枚举与类型信息）
+│   ├── SymbolTable.h           # 符号表与作用域管理
+│   ├── IR.h                    # IR 数据结构定义（Value 子类体系）
+│   ├── IR.cpp                  # IR 实现
+│   ├── IRGenerator.h           # IR 生成器声明
+│   ├── IRGenerator.cpp         # IR 生成器实现（AST → IR）
+│   ├── IRNameManager.h         # IR 符号命名管理
+│   ├── AssemblyGenerator.h     # 汇编生成器声明
+│   ├── AssemblyGenerator.cpp   # 汇编生成器实现（IR → RISC-V ASM）
+│   ├── log.h                   # 日志宏
+│   └── main.cpp                # 入口：命令行解析与编译流水线
+├── ref/                        # 语言/指令规范参考
+│   ├── SysY-spec.md            # SysY 语言规范
+│   ├── SysY-runtime.md         # SysY 运行时库规范
+│   ├── koopa.md                # Koopa IR 规范
+│   ├── libkoppa.md             # libkoopa C 接口参考
+│   └── riscv.md                # RISC-V 指令速查
+├── test/                       # 测试用例
+│   └── hello.c                 # 示例 SysY 程序
+├── result/                     # 编译器输出（.koopa / .asm）
+├── build/                      # CMake 构建输出
+├── CMakeLists.txt              # CMake 配置
+├── docker_start.sh             # 启动 Docker 容器
+├── build.sh                    # 编译项目
+├── run.sh                      # 构建并运行/测试
+├── debug.sh                    # 构建并启动 GDB 调试
+└── riscv.sh                    # 完整 RISC-V 编译→链接→QEMU 运行
 ```
 
-在 [compiler-dev](https://github.com/pku-minic/compiler-dev) 环境内, 进入仓库目录后执行:
+## 环境搭建
 
-```sh
-cd sysy-make-template
-cmake -DCMAKE_BUILD_TYPE=Debug -B build
-cmake --build build
+项目依赖 [compiler-dev](https://github.com/pku-minic/compiler-dev) Docker 环境，其中包含 Flex、Bison、Koopa IR 工具链、RISC-V 工具链及 QEMU。
+
+```bash
+# 启动并进入 Docker 容器，需要提前下载镜像并创建容器
+sh docker_start.sh
 ```
 
-CMake 将在 `build` 目录下生成名为 `compiler` 的可执行文件.
+后续所有命令均需在容器内执行。
 
-如在此基础上进行开发, 你需要重新初始化 Git 仓库:
+## 构建与运行
 
-```sh
-rm -rf .git
-git init
+### 编译项目
+
+```bash
+sh build.sh
 ```
 
-然后, 根据情况修改 `CMakeLists.txt` 中的 `CPP_MODE` 参数. 如果你决定使用 C 语言进行开发, 你应该将其值改为 `OFF`.
+CMake 将在 `build/` 目录下生成名为 `compiler` 的可执行文件。
 
-最后, 将自己的编译器的源文件放入 `src` 目录.
+### 运行编译器
 
-## 测试要求
+```bash
+# 编译为 Koopa IR
+sh run.sh run ir
 
-当你提交一个根目录包含 `CMakeLists.txt` 文件的仓库时, 测试脚本/评测平台会使用如下命令编译你的编译器:
-
-```sh
-cmake -S "repo目录" -B "build目录" -DLIB_DIR="libkoopa目录" -DINC_DIR="libkoopa头文件目录"
-cmake --build "build目录" -j `nproc`
+# 编译为 RISC-V 汇编
+sh run.sh run asm
 ```
 
-你的 `CMakeLists.txt` 必须将可执行文件直接输出到所指定的 build 目录的根目录, 且将其命名为 `compiler`.
+也可直接调用编译器：
 
-如需链接 `libkoopa`, 你的 `CMakeLists.txt` 应当处理 `LIB_DIR` 和 `INC_DIR`.
+```bash
+# 输出 Koopa IR
+build/compiler -koopa test/hello.c -o result/hello.koopa
 
-模板中的 `CMakeLists.txt` 已经处理了上述内容, 你无需额外关心.
+# 输出 RISC-V 汇编
+build/compiler -riscv test/hello.c -o result/hello.asm
+```
+
+### 自动评测
+
+```bash
+# Koopa IR 自动评测
+sh run.sh test ir
+
+# RISC-V 汇编自动评测
+sh run.sh test asm
+```
+
+### GDB 调试
+
+```bash
+sh debug.sh ir    # 调试 IR 生成
+sh debug.sh asm   # 调试汇编生成
+```
+
+### 完整 RISC-V 执行
+
+一键完成编译→汇编→链接→QEMU 运行：
+
+```bash
+sh riscv.sh
+```
