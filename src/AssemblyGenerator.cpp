@@ -122,8 +122,8 @@ std::string AssemblyGenerator::GetValueAddr(Value* val) {
       if (val->type == Value_Type::KOOPA_RVT_ALLOC) {
         // 对于alloc变量，它的地址是栈加上偏移量
         GetStackAddr(reg_allocator->GetLoc(val), addr_reg);
-      } else if (val->type == Value_Type::KOOPA_RVT_GET_ELEM_PTR) {
-        // 对于getelemptr结果，它所代表的地址是它本身的值
+      } else {
+        // 对于getelemptr/getptr/load结果，栈上存的值就是地址，直接加载
         LoadWord(addr_reg, reg_allocator->GetLoc(val));
       }
       break;
@@ -373,7 +373,7 @@ void AssemblyGenerator::Visit(Value_BRANCH *branch) {
 
 void AssemblyGenerator::Visit(Value_Call *call) {
   LOG("Value_Call");
-  
+  // 1. 将参数加载到寄存器 a0-a7 和栈中
   for (size_t i = 0; i < call->args.size() && i < 8; i++) {
     std::string r = "a" + std::to_string(i);
     LoadValueToReg(call->args[i].get(), r);
@@ -383,7 +383,8 @@ void AssemblyGenerator::Visit(Value_Call *call) {
     StoreWord(r, reg_allocator->param_offset + 4 * (i - 8));
     reg_allocator->ClearTempRegs();
   }
-  fs << " call " << call->ident.substr(1) << std::endl;
+  // 2. 生成调用指令
+  fs << " call  " << call->ident.substr(1) << std::endl;
   reg_allocator->ClearTempRegs();
   if (call->name != "null") {
     StoreWord("a0", reg_allocator->GetLoc(call));
@@ -401,20 +402,35 @@ void AssemblyGenerator::Visit(Value_GLOBOL_ALLOC* glob_alloc) {
 }
 
 void AssemblyGenerator::Visit(Value_GET_ELEM_PTR* get_elem_ptr) {
+  // %0 = getelemptr @arr, 0
   LOG("Value_GET_ELEM_PTR");
-  
+  // 1. 得到数组的基地址
   auto base_reg = GetValueAddr(get_elem_ptr->base.get());
+  // 2. 计算元素偏移并加到基地址上，得到元素地址
   auto index = GetValueReg(get_elem_ptr->index.get());
   auto temp_size = std::make_shared<Value_INTEGER>(0);
   auto size_reg = reg_allocator->Alloc(temp_size.get());
   fs << " li    " << size_reg << ", " << get_elem_ptr->elem_size << std::endl;
   fs << " mul   " << size_reg << ", " << size_reg << ", " << index << std::endl;
   fs << " add   " << base_reg << ", " << base_reg << ", " << size_reg << std::endl;
+  // 3. 将计算得到的地址存储到栈中
   StoreWord(base_reg, reg_allocator->GetLoc(get_elem_ptr));
   reg_allocator->ClearTempRegs();
 }
 
 void AssemblyGenerator::Visit(Value_GET_PTR* get_ptr) {
-  // 访问获取指针指令 getptr %0 = @a
+  // 访问获取指针指令 %1 = getptr %0, 1
   LOG("Value_GET_PTR");
+  // 1. 获取基地址
+  auto base_reg = GetValueAddr(get_ptr->base.get());
+  // 2. 计算偏移并加到基地址上
+  auto offset = GetValueReg(get_ptr->index.get());
+  auto temp_size = std::make_shared<Value_INTEGER>(0);
+  auto size_reg = reg_allocator->Alloc(temp_size.get());
+  fs << " li    " << size_reg << ", " << get_ptr->elem_size << std::endl;
+  fs << " mul   " << size_reg << ", " << size_reg << ", " << offset << std::endl;
+  fs << " add   " << base_reg << ", " << base_reg << ", " << size_reg << std::endl;
+  // 3. 将计算得到的地址存储到栈中
+  StoreWord(base_reg, reg_allocator->GetLoc(get_ptr));
+  reg_allocator->ClearTempRegs();
 }

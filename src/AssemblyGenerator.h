@@ -133,6 +133,7 @@ public:
   }
 
   bool Scan(Function* func) {
+    LOG("Scan function: " + func->name);
     // 1. 如果函数传参的数量大于8，额外的参数也需要分配栈空间
     int max_params = -1;
     bool has_call = false;
@@ -167,25 +168,34 @@ public:
               LOG("Alloc non-array, offset=" + std::to_string(stack_offset));
               stack_offset += 4;  // 单个变量
             } else {
-              std::vector<int> dims = alloc->type_info.getArrayDims();
-              int size = 1;
-              for (int dim : dims) {
-                size *= dim;
+              if (alloc->type_info.modifiers[1].first == TypeInfo::TypeKind::ARRAY) {
+                // 对于数组类型将所有数据加载到栈中
+                std::vector<int> dims = alloc->type_info.getArrayDims();
+                int size = 1;
+                LOG("Alloc array, dims=" + std::to_string(dims.size()));
+                for (int i = 1; i < dims.size(); i++) {
+                  size *= dims[i];
+                }
+                stack_offset += size * 4;  // 数组
+              } else {
+                // 对于指针类型
+                stack_offset += 4;  // 指针
               }
-              stack_offset += size * 4;  // 数组
             }
             break;
           }
           case Value_Type::KOOPA_RVT_LOAD:
-            LOG("Load");
           case Value_Type::KOOPA_RVT_BINARY:
           case Value_Type::KOOPA_RVT_GET_ELEM_PTR:
+          case Value_Type::KOOPA_RVT_GET_PTR:
+          LOG("Other stmt, offset=" + std::to_string(stack_offset));
           value_to_stack[stmt.get()] = stack_offset;
           where_is_value[stmt.get()] = 2;  // 标记为在栈中
           stack_offset+=4;
           break;
           case Value_Type::KOOPA_RVT_CALL: {
             auto call = static_cast<Value_Call*>(stmt.get());
+            // 如果没有返回值就不分配栈空间
             if (call->name != "null") {
               value_to_stack[stmt.get()] = stack_offset;
               where_is_value[stmt.get()] = 2;  // 标记为在栈中
@@ -213,6 +223,7 @@ public:
       // 保持栈对齐
       stack_offset += (16 - stack_offset % 16);
     }
+    LOG("Total stack offset for function " + func->name + ": " + std::to_string(stack_offset));
     return has_call;
   }
 
