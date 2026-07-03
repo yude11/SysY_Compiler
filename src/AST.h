@@ -1,27 +1,26 @@
 #pragma once
 
+#include <cassert>
+#include <iostream>
 #include <memory>
 #include <string>
-#include <iostream>
-#include <cassert>
 #include <variant>
 
 #include "IR.h"
 #include "visitor.h"
 
 class TypeInfoModel {
-  public:
-    // 普通变量
-    TypeInfoModel(BaseType type) : type(type), kind(TypeInfo::TypeKind::SCALAR) {}
-    // 指针变量
-    TypeInfoModel(BaseType type, TypeInfo::TypeKind kind) : type(type), kind(kind) {}
-    // 数组变量, 指针变量
-    TypeInfoModel(BaseType type, TypeInfo::TypeKind kind, 
-      std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dims) 
-        : type(type), kind(kind), dims(std::move(dims)) {}
-    BaseType type;
-    TypeInfo::TypeKind kind;
-    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dims;
+ public:
+  // 普通变量
+  TypeInfoModel(BaseType type) : type(type), kind(TypeInfo::TypeKind::SCALAR) {}
+  // 指针变量
+  TypeInfoModel(BaseType type, TypeInfo::TypeKind kind) : type(type), kind(kind) {}
+  // 数组变量, 指针变量
+  TypeInfoModel(BaseType type, TypeInfo::TypeKind kind, std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dims)
+      : type(type), kind(kind), dims(std::move(dims)) {}
+  BaseType type;
+  TypeInfo::TypeKind kind;
+  std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> dims;
 };
 
 class BaseAST {
@@ -34,41 +33,33 @@ class BaseAST {
 };
 
 class NullAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "NullAST";
-    }
+  void Dump() const override { std::cout << "NullAST"; }
 };
 
 class CompUnitAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
-   std::cout << "CompUnitAST { ";
-   for (auto& func : func_defs_or_decls) {
-     func->Dump();
-   }
-   std::cout << " }";
+    std::cout << "CompUnitAST { ";
+    for (const auto &func : func_defs_or_decls) {
+      func->Dump();
+    }
+    std::cout << " }";
   }
-  
+
   // 使用 vector 存储所有函数定义
   std::vector<std::unique_ptr<BaseAST>> func_defs_or_decls;
 };
 
 class FuncDefAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
- void Dump() const override {}
+  void Dump() const override {}
 
   std::unique_ptr<TypeInfoModel> func_type;
   std::string ident;
@@ -77,97 +68,86 @@ class FuncDefAST : public BaseAST {
     std::unique_ptr<TypeInfoModel> type;
     std::string ident;
   };
-  typedef std::vector<std::unique_ptr<FuncParam>> FuncParams;
+  using FuncParams = std::vector<std::unique_ptr<FuncParam>>;
   std::unique_ptr<FuncParams> func_params;
-
 };
 
 // BLock = { BlockItem* }
 class BlockAST : public BaseAST {
-  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
-  
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
+
   void Dump() const override {
     std::cout << "BlockAST { ";
-    for (auto& item : *block_items) {
+    for (auto &item : *block_items) {
       item->Dump();
     }
     std::cout << " }";
   }
-  
+
   std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> block_items;
 };
 
 // BlockItem = Decl | Stmt
 class BlockItemAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "BlockItemAST { ";
-      if (type == 0) {
-        auto& item = std::get<std::unique_ptr<BaseAST>>(mem);
-        item->Dump();
-      } else {
-        auto item = std::get<std::shared_ptr<BaseAST>>(mem);
-        item->Dump();
-      }
-      std::cout << " }";
+  void Dump() const override {
+    std::cout << "BlockItemAST { ";
+    if (type == 0) {
+      const auto &item = std::get<std::unique_ptr<BaseAST>>(mem);
+      item->Dump();
+    } else {
+      const auto item = std::get<std::shared_ptr<BaseAST>>(mem);
+      item->Dump();
     }
+    std::cout << " }";
+  }
 
-    int type = -1;
-    std::variant<std::unique_ptr<BaseAST>, std::shared_ptr<BaseAST>> mem;
+  int type = -1;
+  std::variant<std::unique_ptr<BaseAST>, std::shared_ptr<BaseAST>> mem;
 };
 
 class VarDeclAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "VarDeclAST { ";
-      for (auto& var_def : *var_def_list) {
-        var_def->Dump();
-      }
-      std::cout << " }";
+  void Dump() const override {
+    std::cout << "VarDeclAST { ";
+    for (auto &var_def : *var_def_list) {
+      var_def->Dump();
     }
+    std::cout << " }";
+  }
 
-    // List的大小要大于等于1
-    std::unique_ptr<TypeInfoModel> elem_type;
-    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> var_def_list;
+  // List的大小要大于等于1
+  std::unique_ptr<TypeInfoModel> elem_type;
+  std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> var_def_list;
 };
 
 class VarDefAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "VarDefAST { ";
-      // std::cout << ident << " = ";
-      // for (auto& var_exp : *var_exps) {
-      //   var_exp->Dump();
-      // }
-      std::cout << " }";
-    }
+  void Dump() const override {
+    std::cout << "VarDefAST { ";
+    // std::cout << ident << " = ";
+    // for (auto& var_exp : *var_exps) {
+    //   var_exp->Dump();
+    // }
+    std::cout << " }";
+  }
 
-    int type = -1;
-    std::string ident;
-    std::unique_ptr<BaseAST> var_exps;
-    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_size;
+  int type = -1;
+  std::string ident;
+  std::unique_ptr<BaseAST> var_exps;
+  std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_size;
 };
 
 class InitValAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
     if (is_leaf) {
@@ -175,7 +155,7 @@ class InitValAST : public BaseAST {
       exp->Dump();
     } else {
       std::cout << "List: { ";
-      for (auto& child : children) {
+      for (const auto &child : children) {
         child->Dump();
         std::cout << " ";
       }
@@ -185,133 +165,120 @@ class InitValAST : public BaseAST {
 
   // true: 叶子节点（单个 Exp），false: 列表节点
   bool is_leaf = false;
-  
+
   // 叶子时用
   std::unique_ptr<BaseAST> exp;
-  
+
   // 列表时用，每个元素都是 InitValAST
   std::vector<std::unique_ptr<InitValAST>> children;
 };
 
-
-
 // ConstDecl = CONST BType ConstDef "," ConstDefList ";" | CONST BType ConstDef "," ConstDefList ";"
 class ConstDeclAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "ConstDecl { ";
-      for (auto& const_def : *const_def_list) {
-        const_def->Dump();
-      }
-      std::cout << " }";
+  void Dump() const override {
+    std::cout << "ConstDecl { ";
+    for (auto &const_def : *const_def_list) {
+      const_def->Dump();
     }
+    std::cout << " }";
+  }
 
-    // List的大小要大于等于1
-    std::unique_ptr<TypeInfoModel> elem_type;
-    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> const_def_list;
+  // List的大小要大于等于1
+  std::unique_ptr<TypeInfoModel> elem_type;
+  std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> const_def_list;
 };
 
 // ConstDef = INDENT = ConstInitVal
 // ConstInitVal = ConstExp
 class ConstDefAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "ConstDefAST { ";
-      // std::cout << ident << " = ";
-      // const_exp->Dump();
-      std::cout << " }";
-    }
-    
-    int type = -1;
-    std::string ident;
-    std::unique_ptr<BaseAST> const_exps;
-    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_size;
+  void Dump() const override {
+    std::cout << "ConstDefAST { ";
+    // std::cout << ident << " = ";
+    // const_exp->Dump();
+    std::cout << " }";
+  }
+
+  int type = -1;
+  std::string ident;
+  std::unique_ptr<BaseAST> const_exps;
+  std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_size;
 };
 
 class ConstInitValAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      if (is_leaf) {
-        std::cout << "Leaf: ";
-        exp->Dump();
-      } else {
-        std::cout << "List: { ";
-        for (auto& child : children) {
-          child->Dump();
-          std::cout << " ";
-        }
-        std::cout << "}";
+  void Dump() const override {
+    if (is_leaf) {
+      std::cout << "Leaf: ";
+      exp->Dump();
+    } else {
+      std::cout << "List: { ";
+      for (const auto &child : children) {
+        child->Dump();
+        std::cout << " ";
       }
+      std::cout << "}";
     }
+  }
 
-    // true: 叶子节点（单个 Exp），false: 列表节点
-    bool is_leaf = false;
-    
-    // 叶子时用
-    std::unique_ptr<BaseAST> exp;
-    
-    // 列表时用，每个元素都是 ConstInitValAST
-    std::vector<std::unique_ptr<ConstInitValAST>> children;
+  // true: 叶子节点（单个 Exp），false: 列表节点
+  bool is_leaf = false;
+
+  // 叶子时用
+  std::unique_ptr<BaseAST> exp;
+
+  // 列表时用，每个元素都是 ConstInitValAST
+  std::vector<std::unique_ptr<ConstInitValAST>> children;
 };
 
 class NumberAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
-    std::cout << "NumberAST: " << "{" << num << "}";
+    std::cout << "NumberAST: "
+              << "{" << num << "}";
   }
 
   int num;
 };
 
 class LValAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "LValAST { ";
-      std::cout << ident;
-      std::cout << " }";
-    }
+  void Dump() const override {
+    std::cout << "LValAST { ";
+    std::cout << ident;
+    std::cout << " }";
+  }
 
-    int type = -1;
-    std::string ident;
-    std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_index;
+  int type = -1;
+  std::string ident;
+  std::unique_ptr<std::vector<std::unique_ptr<BaseAST>>> array_index;
 };
 
 class StmtAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
     std::cout << "StmtAST { ";
     switch (type) {
       case Stmt_Type::AST_STMT_RETURN: {
-        auto& return_stmt = std::get<RETURN_STMT>(stmt);
+        const auto &return_stmt = std::get<RETURN_STMT>(stmt);
         return_stmt->Dump();
         break;
       }
       case Stmt_Type::AST_STMT_ASSIGN: {
-        auto& assign_stmt = std::get<Assign_STMT>(stmt);
+        const auto &assign_stmt = std::get<Assign_STMT>(stmt);
         assign_stmt.lval->Dump();
         assign_stmt.exp->Dump();
         break;
@@ -325,7 +292,7 @@ class StmtAST : public BaseAST {
         break;
       }
       case Stmt_Type::AST_STMT_EXP: {
-        auto& exp_stmt = std::get<Exp_STMT>(stmt);
+        const auto &exp_stmt = std::get<Exp_STMT>(stmt);
         exp_stmt->Dump();
         break;
       }
@@ -334,15 +301,15 @@ class StmtAST : public BaseAST {
     }
     std::cout << " }";
   }
-  
+
   Stmt_Type type;
-  typedef std::unique_ptr<BaseAST> RETURN_STMT;
+  using RETURN_STMT = std::unique_ptr<BaseAST>;
   struct Assign_STMT {
     std::unique_ptr<BaseAST> lval;
     std::unique_ptr<BaseAST> exp;
   };
-  typedef std::unique_ptr<BaseAST> Block_STMT;
-  typedef std::unique_ptr<BaseAST> Exp_STMT;
+  using Block_STMT = std::unique_ptr<BaseAST>;
+  using Exp_STMT = std::unique_ptr<BaseAST>;
   struct IfElse_STMT {
     std::unique_ptr<BaseAST> exp;
     std::unique_ptr<BaseAST> if_stmt;
@@ -357,17 +324,16 @@ class StmtAST : public BaseAST {
 };
 
 class OpAST : public BaseAST {
-  public:
-    OpAST(Op_Type op) : op(op) {}
+ public:
+  OpAST(Op_Type op) : op(op) {} 
 
-    void Dump() const override {
-      std::cout << "OpAST: " << "{" << op << "}";
-    }
+  void Dump() const override {
+    // std::cout << "OpAST: " << "{" << op << "}";
+    ;
+  }
 
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
-    Op_Type op;
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
+  Op_Type op;
 };
 
 class UnaryOpAST : public OpAST {
@@ -380,47 +346,39 @@ class UnaryOpAST : public OpAST {
     std::cout << " }";
   }
 
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 };
 
 class BinaryOpAST : public OpAST {
-  public:
-    BinaryOpAST(Op_Type op) : OpAST(op) {}
+ public:
+  BinaryOpAST(Op_Type op) : OpAST(op) {}
 
-    void Dump() const override {
-      std::cout << "BinaryOpAST { ";
-      // binary_op->Dump();
-      std::cout << " }";
-    }
+  void Dump() const override {
+    std::cout << "BinaryOpAST { ";
+    // binary_op->Dump();
+    std::cout << " }";
+  }
 
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 };
 
 class LGBinaryOpAST : public BinaryOpAST {
-  public:
-    LGBinaryOpAST(Op_Type op) : BinaryOpAST(op) {}
+ public:
+  LGBinaryOpAST(Op_Type op) : BinaryOpAST(op) {}
 
-    void Dump() const override {
-      std::cout << "LGBinaryOpAST { ";
-      // binary_op->Dump();
-      std::cout << " }";
-    }
+  void Dump() const override {
+    std::cout << "LGBinaryOpAST { ";
+    // binary_op->Dump();
+    std::cout << " }";
+  }
 
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 };
 
 // PrimaryExp = ( Exp ) | Number
 class PrimaryExpAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
     std::cout << "PrimaryExpAST { ";
@@ -432,40 +390,34 @@ class PrimaryExpAST : public BaseAST {
   int type = -1;
 
   std::unique_ptr<BaseAST> mem;
- };
+};
 
 // UnaryExp = PrimaryExp | UnaryOp UnaryExp
 class UnaryExpAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "UnaryExprAST { ";
-      // unary_op->Dump();
-      std::cout << " }";
-    }
+  void Dump() const override {
+    std::cout << "UnaryExprAST { ";
+    // unary_op->Dump();
+    std::cout << " }";
+  }
 
-    // 用来表示mem的类型
-    int type = -1;
+  // 用来表示mem的类型
+  int type = -1;
 
-    struct UnaryExp {
-      std::unique_ptr<BaseAST> unary_op;
-      std::unique_ptr<BaseAST> unary_exp;
-    };
+  struct UnaryExp {
+    std::unique_ptr<BaseAST> unary_op;
+    std::unique_ptr<BaseAST> unary_exp;
+  };
 
-    std::variant<std::unique_ptr<BaseAST>
-                , UnaryExp> mem;
-    
+  std::variant<std::unique_ptr<BaseAST>, UnaryExp> mem;
 };
 
 class FuncCallAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
-  
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
+
   void Dump() const override {
     std::cout << "FuncCallAST { ";
     std::cout << ident;
@@ -475,60 +427,51 @@ class FuncCallAST : public BaseAST {
     // }
     std::cout << " }";
   }
-  
 
-  typedef std::unique_ptr<BaseAST> param;
-  typedef std::vector<param> Params;
+  using param = std::unique_ptr<BaseAST>;
+  using Params = std::vector<param>;
   std::string ident;
   std::unique_ptr<Params> params;
 };
 
 // Exp = LOrExp
 class ExpAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "ExpAST { ";
-      l_or_exp->Dump();
-      std::cout << " }";
-    }
+  void Dump() const override {
+    std::cout << "ExpAST { ";
+    l_or_exp->Dump();
+    std::cout << " }";
+  }
 
-    std::unique_ptr<BaseAST> l_or_exp;
+  std::unique_ptr<BaseAST> l_or_exp;
 };
 
 // AddExp : MulExp | AddExp AddOp MulExp
 class AddExpAST : public BaseAST {
-  public:
-    void Accept(ASTVisitor *visitor) override {
-      visitor->Visit(this);
-    }
+ public:
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
-    void Dump() const override {
-      std::cout << "AddExpAST { ";
-      // add_exp->Dump();
-      std::cout << " }";
-    }
+  void Dump() const override {
+    std::cout << "AddExpAST { ";
+    // add_exp->Dump();
+    std::cout << " }";
+  }
 
-    int type = -1;
-    struct AddExp {
-      std::unique_ptr<BaseAST> add_exp;
-      std::unique_ptr<BaseAST> add_op;
-      std::unique_ptr<BaseAST> mul_exp;
-    };
-    std::variant<std::unique_ptr<BaseAST>
-                , AddExp> mem;
+  int type = -1;
+  struct AddExp {
+    std::unique_ptr<BaseAST> add_exp;
+    std::unique_ptr<BaseAST> add_op;
+    std::unique_ptr<BaseAST> mul_exp;
+  };
+  std::variant<std::unique_ptr<BaseAST>, AddExp> mem;
 };
-
 
 // MulExp =  UnaryExp | MulExp MulOp UnaryExp
 class MulExpAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
     std::cout << "MulExpAST { ";
@@ -550,17 +493,13 @@ class MulExpAST : public BaseAST {
     std::unique_ptr<BaseAST> mul_op;
     std::unique_ptr<BaseAST> unary_exp;
   };
-  std::variant<std::unique_ptr<BaseAST>
-                , MulExp> mem;
+  std::variant<std::unique_ptr<BaseAST>, MulExp> mem;
 };
-
 
 // RelExp = AddExp | RelExp BinaryOp AddExp
 class RelExpAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
     std::cout << "RelExpAST { ";
@@ -582,16 +521,13 @@ class RelExpAST : public BaseAST {
     std::unique_ptr<BaseAST> rel_op;
     std::unique_ptr<BaseAST> add_exp;
   };
-  std::variant<std::unique_ptr<BaseAST>
-                , RelExp> mem;
+  std::variant<std::unique_ptr<BaseAST>, RelExp> mem;
 };
 
 // EqExp = RelExp | EqExp BinaryOp RelExp
 class EqExpAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
     std::cout << "EqExpAST { ";
@@ -613,16 +549,13 @@ class EqExpAST : public BaseAST {
     std::unique_ptr<BaseAST> eq_op;
     std::unique_ptr<BaseAST> rel_exp;
   };
-  std::variant<std::unique_ptr<BaseAST>
-                , EqExp> mem;
+  std::variant<std::unique_ptr<BaseAST>, EqExp> mem;
 };
 
 // LAndExp = EqExp | LAndExp BinaryOp EqExp
 class LAndExpAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
     std::cout << "LAndExpAST { ";
@@ -644,16 +577,13 @@ class LAndExpAST : public BaseAST {
     std::unique_ptr<BaseAST> l_and_op;
     std::unique_ptr<BaseAST> eq_exp;
   };
-  std::variant<std::unique_ptr<BaseAST>
-                , LAndExp> mem;
+  std::variant<std::unique_ptr<BaseAST>, LAndExp> mem;
 };
-               
+
 // LOrExp = LAndExp | LOrExp BinaryOp LAndExp
 class LOrExpAST : public BaseAST {
  public:
-  void Accept(ASTVisitor *visitor) override {
-    visitor->Visit(this);
-  }
+  void Accept(ASTVisitor *visitor) override { visitor->Visit(this); }
 
   void Dump() const override {
     std::cout << "LOrExpAST { ";
@@ -675,6 +605,5 @@ class LOrExpAST : public BaseAST {
     std::unique_ptr<BaseAST> l_or_op;
     std::unique_ptr<BaseAST> l_and_exp;
   };
-  std::variant<std::unique_ptr<BaseAST>
-                , LOrExp> mem;
+  std::variant<std::unique_ptr<BaseAST>, LOrExp> mem;
 };

@@ -1,8 +1,9 @@
 #pragma once
+#include <cstdint> 
 // IR中的Type相关的类型定义
 
 // Koopa中Value的类型
-typedef enum {
+enum class Value_Type : std::uint8_t {
   /// Integer constant.
   KOOPA_RVT_INTEGER,
   /// Zero initializer.
@@ -39,10 +40,10 @@ typedef enum {
   KOOPA_RVT_RETURN,
   /// Void value.
   KOOPA_RVT_VOID,
-} Value_Type;
+};
 
 // Koopa中二元操作符的类型
-typedef enum {
+enum class Binary_Op_Type : std::uint8_t {
   /// Not equal to.
   KOOPA_RBO_NOT_EQ,
   /// Equal to.
@@ -77,77 +78,75 @@ typedef enum {
   KOOPA_RBO_SHR,
   /// Shift right arithmetic.
   KOOPA_RBO_SAR,
-} Binary_Op_Type;
+};
 
 // AST中的Type相关的类型定义
 // 操作符的类型
-typedef enum {
-    /// Negation.
-    AST_UNARY_OP_NEG,
-    /// Logical NOT.
-    AST_UNARY_OP_NOT,
-    /// Positive.
-    AST_UNARY_OP_POS,
-    /// Multiplication.
+enum class Op_Type : std::uint8_t {
+  /// Negation.
+  AST_UNARY_OP_NEG,
+  /// Logical NOT.
+  AST_UNARY_OP_NOT,
+  /// Positive.
+  AST_UNARY_OP_POS,
+  /// Multiplication.
 
-    // 二元算术运算符
-    AST_BINARY_OP_MUL,
-    /// Division.
-    AST_BINARY_OP_DIV,
-    /// Addition.
-    AST_BINARY_OP_ADD,
-    /// Subtraction.
-    AST_BINARY_OP_SUB,
-    /// Modulo.
-    AST_BINARY_OP_MOD,
-    
-    // 二元比较运算符
-    /// Less than.
-    AST_BINARY_OP_LT,
-    /// Greater than.
-    AST_BINARY_OP_GT,
-    /// Greater than or equal to.
-    AST_BINARY_OP_GE,
-    /// Less than or equal to.
-    AST_BINARY_OP_LE,
-    /// Equal to.
-    AST_BINARY_OP_EQ,
-    /// Not equal to.
-    AST_BINARY_OP_NE,
+  // 二元算术运算符
+  AST_BINARY_OP_MUL,
+  /// Division.
+  AST_BINARY_OP_DIV,
+  /// Addition.
+  AST_BINARY_OP_ADD,
+  /// Subtraction.
+  AST_BINARY_OP_SUB,
+  /// Modulo.
+  AST_BINARY_OP_MOD,
 
-    // 二元逻辑运算符
-    /// Logical AND.
-    AST_BINARY_OP_LA,
-    /// Logical OR.
-    AST_BINARY_OP_LO,
-} Op_Type;
+  // 二元比较运算符
+  /// Less than.
+  AST_BINARY_OP_LT,
+  /// Greater than.
+  AST_BINARY_OP_GT,
+  /// Greater than or equal to.
+  AST_BINARY_OP_GE,
+  /// Less than or equal to.
+  AST_BINARY_OP_LE,
+  /// Equal to.
+  AST_BINARY_OP_EQ,
+  /// Not equal to.
+  AST_BINARY_OP_NE,
 
-typedef enum {
-    /// Return.
-    AST_STMT_RETURN,
-    /// Assignment.
-    AST_STMT_ASSIGN,
-    /// Block statement.
-    AST_STMT_BLOCK,
-    /// If-Else statement.
-    AST_STMT_IF_ELSE,
-    /// While statement.
-    AST_STMT_WHILE,
-    /// Break statement.
-    AST_STMT_BREAK,
-    /// Continue statement.
-    AST_STMT_CONTINUE,
-    /// Expression statement.
-    AST_STMT_EXP,
-} Stmt_Type;
+  // 二元逻辑运算符
+  /// Logical AND.
+  AST_BINARY_OP_LA,
+  /// Logical OR.
+  AST_BINARY_OP_LO,
+};
 
-//变量，函数返回值的类型 
-typedef enum {
+enum class Stmt_Type : std::uint8_t {
+  /// Return.
+  AST_STMT_RETURN,
+  /// Assignment.
+  AST_STMT_ASSIGN,
+  /// Block statement.
+  AST_STMT_BLOCK,
+  /// If-Else statement.
+  AST_STMT_IF_ELSE,
+  /// While statement.
+  AST_STMT_WHILE,
+  /// Break statement.
+  AST_STMT_BREAK,
+  /// Continue statement.
+  AST_STMT_CONTINUE,
+  /// Expression statement.
+  AST_STMT_EXP,
+};
+
+//变量，函数返回值的类型
+enum class AST_Type : std::uint8_t {
   /// Integer.
   AST_TYPE_INTEGER,
   /// Void.
   AST_TYPE_VOID,
   /// Aggregate.
-} AST_Type;
-
-
+};

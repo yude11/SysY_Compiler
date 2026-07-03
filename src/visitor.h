@@ -1,10 +1,10 @@
 #pragma once
 
-#include <memory>
-#include <string>
-#include <iostream>
 #include <cassert>
 #include <fstream>
+#include <iostream>
+#include <memory>
+#include <string>
 
 class BaseAST;
 class NullAST;
@@ -37,42 +37,39 @@ class VarDefAST;
 class VarDeclAST;
 class FuncCallAST;
 
-
-
-
 class Visitor {};
 
 class ASTVisitor : public Visitor {
-  public:
-    virtual ~ASTVisitor() {}
-    virtual void Visit(CompUnitAST* ast) = 0;
-    virtual void Visit(FuncDefAST* ast) = 0;
-    virtual void Visit(BlockAST* ast) = 0;
-    virtual void Visit(NumberAST* ast) = 0;
-    virtual void Visit(StmtAST* ast) = 0;
-    virtual void Visit(ExpAST* ast) = 0;
-    virtual void Visit(PrimaryExpAST* ast) = 0;
-    virtual void Visit(UnaryExpAST* ast) = 0;
-    virtual void Visit(OpAST* ast) = 0;
-    virtual void Visit(UnaryOpAST* ast) = 0;
-    virtual void Visit(BinaryOpAST* ast) = 0;
-    virtual void Visit(LGBinaryOpAST* ast) = 0;
-    virtual void Visit(AddExpAST* ast) = 0;
-    virtual void Visit(MulExpAST* ast) = 0;
-    virtual void Visit(LOrExpAST* ast) = 0;
-    virtual void Visit(LAndExpAST* ast) = 0;
-    virtual void Visit(EqExpAST* ast) = 0;
-    virtual void Visit(RelExpAST* ast) = 0;
-    virtual void Visit(BlockItemAST* ast) = 0;
-    virtual void Visit(ConstDeclAST* ast) = 0;
-    virtual void Visit(ConstDefAST* ast) = 0;
-    virtual void Visit(LValAST* ast) = 0;
-    virtual void Visit(VarDefAST* ast) = 0;
-    virtual void Visit(InitValAST* ast) = 0;
-    virtual void Visit(ConstInitValAST* ast) = 0;
-    virtual void Visit(VarDeclAST* ast) = 0;
-    virtual void Visit(NullAST* ast) = 0;
-    virtual void Visit(FuncCallAST* ast) = 0;
+ public:
+  virtual ~ASTVisitor() = default;
+  virtual void Visit(CompUnitAST *ast) = 0;
+  virtual void Visit(FuncDefAST *ast) = 0;
+  virtual void Visit(BlockAST *ast) = 0;
+  virtual void Visit(NumberAST *ast) = 0;
+  virtual void Visit(StmtAST *ast) = 0;
+  virtual void Visit(ExpAST *ast) = 0;
+  virtual void Visit(PrimaryExpAST *ast) = 0;
+  virtual void Visit(UnaryExpAST *ast) = 0;
+  virtual void Visit(OpAST *ast) = 0;
+  virtual void Visit(UnaryOpAST *ast) = 0;
+  virtual void Visit(BinaryOpAST *ast) = 0;
+  virtual void Visit(LGBinaryOpAST *ast) = 0;
+  virtual void Visit(AddExpAST *ast) = 0;
+  virtual void Visit(MulExpAST *ast) = 0;
+  virtual void Visit(LOrExpAST *ast) = 0;
+  virtual void Visit(LAndExpAST *ast) = 0;
+  virtual void Visit(EqExpAST *ast) = 0;
+  virtual void Visit(RelExpAST *ast) = 0;
+  virtual void Visit(BlockItemAST *ast) = 0;
+  virtual void Visit(ConstDeclAST *ast) = 0;
+  virtual void Visit(ConstDefAST *ast) = 0;
+  virtual void Visit(LValAST *ast) = 0;
+  virtual void Visit(VarDefAST *ast) = 0;
+  virtual void Visit(InitValAST *ast) = 0;
+  virtual void Visit(ConstInitValAST *ast) = 0;
+  virtual void Visit(VarDeclAST *ast) = 0;
+  virtual void Visit(NullAST *ast) = 0;
+  virtual void Visit(FuncCallAST *ast) = 0;
 };
 
 class Value;
@@ -95,23 +92,23 @@ class Function;
 class Program;
 
 class IRVisitor : public Visitor {
-  public:
-    virtual ~IRVisitor() {}
-    virtual void Visit(Value_RETURN* return_val) = 0;
-    virtual void Visit(Value_INTEGER* integer) = 0;
-    virtual void Visit(Value_BINARY* binary) = 0;
-    virtual void Visit(Value_BRANCH* branch) = 0;
-    virtual void Visit(Value_JUMP* jump) = 0;
-    virtual void Visit(Value_Call* call) = 0;
-    virtual void Visit(Value_FUNC_ARG_REF* ref) = 0;
-    virtual void Visit(Value_ALLOC* alloc) = 0;
-    virtual void Visit(Value_GLOBOL_ALLOC* glob_alloc) = 0;
-    virtual void Visit(Value_GET_PTR* get_ptr) = 0;
-    virtual void Visit(Value_GET_ELEM_PTR* get_elem_ptr) = 0;
-    virtual void Visit(Value_LOAD* load) = 0;
-    virtual void Visit(Value_STORE* store) = 0;
-    virtual void Visit(BasicBlock* block) = 0;
-    virtual void Visit(Function* func) = 0;
-    virtual void Visit(Function_Decl* func_decl) = 0;
-    virtual void Visit(Program* program) = 0;
+ public:
+  virtual ~IRVisitor() = default;
+  virtual void Visit(Value_RETURN *return_val) = 0;
+  virtual void Visit(Value_INTEGER *integer) = 0;
+  virtual void Visit(Value_BINARY *binary) = 0;
+  virtual void Visit(Value_BRANCH *branch) = 0;
+  virtual void Visit(Value_JUMP *jump) = 0;
+  virtual void Visit(Value_Call *call) = 0;
+  virtual void Visit(Value_FUNC_ARG_REF *ref) = 0;
+  virtual void Visit(Value_ALLOC *alloc) = 0;
+  virtual void Visit(Value_GLOBOL_ALLOC *glob_alloc) = 0;
+  virtual void Visit(Value_GET_PTR *get_ptr) = 0;
+  virtual void Visit(Value_GET_ELEM_PTR *get_elem_ptr) = 0;
+  virtual void Visit(Value_LOAD *load) = 0;
+  virtual void Visit(Value_STORE *store) = 0;
+  virtual void Visit(BasicBlock *block) = 0;
+  virtual void Visit(Function *func) = 0;
+  virtual void Visit(Function_Decl *func_decl) = 0;
+  virtual void Visit(Program *program) = 0;
 };

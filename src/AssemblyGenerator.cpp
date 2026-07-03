@@ -2,23 +2,20 @@
 #include "IR.h"
 #include "log.h"
 
-
-AssemblyGenerator::AssemblyGenerator(std::string output) {
+AssemblyGenerator::AssemblyGenerator(const std::string &output) {
   reg_allocator = std::make_unique<RegAllocator>();
   fs.open(output, std::ios::out);
 }
 
-AssemblyGenerator::~AssemblyGenerator() {
-  fs.close();
-}
+AssemblyGenerator::~AssemblyGenerator() { fs.close(); }
 
-std::string AssemblyGenerator::GetValueReg(Value* val) {
+std::string AssemblyGenerator::GetValueReg(Value *val) {
   if (val->type == Value_Type::KOOPA_RVT_INTEGER) {
     auto reg = reg_allocator->Alloc(val);
     fs << " li    " << reg << ", " << val->name << std::endl;
     return reg;
   }
-  
+
   auto pos = reg_allocator->GetWhereIsValue(val);
   switch (pos) {
     case 0:  // 已在寄存器 t 中
@@ -42,12 +39,12 @@ std::string AssemblyGenerator::GetValueReg(Value* val) {
   }
 }
 
-void AssemblyGenerator::LoadValueToReg(Value* val, const std::string& target_reg) {
+void AssemblyGenerator::LoadValueToReg(Value *val, const std::string &target_reg) {
   if (val->type == Value_Type::KOOPA_RVT_INTEGER) {
     fs << " li    " << target_reg << ", " << val->name << std::endl;
     return;
   }
-  
+
   auto pos = reg_allocator->GetWhereIsValue(val);
   switch (pos) {
     case 0:  // 已在寄存器 t 中
@@ -69,7 +66,7 @@ void AssemblyGenerator::LoadValueToReg(Value* val, const std::string& target_reg
   }
 }
 
-void AssemblyGenerator::GetStackAddr(int offset, const std::string& reg) {
+void AssemblyGenerator::GetStackAddr(int offset, const std::string &reg) {
   if (IsValidOffset(offset)) {
     fs << " addi  " << reg << ", sp, " << offset << std::endl;
   } else {
@@ -78,7 +75,7 @@ void AssemblyGenerator::GetStackAddr(int offset, const std::string& reg) {
   }
 }
 
-void AssemblyGenerator::StoreWord(const std::string& src_reg, int offset) {
+void AssemblyGenerator::StoreWord(const std::string &src_reg, int offset) {
   if (IsValidOffset(offset)) {
     fs << " sw    " << src_reg << ", " << offset << "(sp)" << std::endl;
   } else {
@@ -89,7 +86,7 @@ void AssemblyGenerator::StoreWord(const std::string& src_reg, int offset) {
   }
 }
 
-void AssemblyGenerator::LoadWord(const std::string& dst_reg, int offset) {
+void AssemblyGenerator::LoadWord(const std::string &dst_reg, int offset) {
   if (IsValidOffset(offset)) {
     fs << " lw    " << dst_reg << ", " << offset << "(sp)" << std::endl;
   } else {
@@ -100,7 +97,7 @@ void AssemblyGenerator::LoadWord(const std::string& dst_reg, int offset) {
   }
 }
 
-std::string AssemblyGenerator::GetValueAddr(Value* val) {
+std::string AssemblyGenerator::GetValueAddr(Value *val) {
   std::string addr_reg;
   auto pos = reg_allocator->GetWhereIsValue(val);
   switch (pos) {
@@ -138,7 +135,7 @@ std::string AssemblyGenerator::GetValueAddr(Value* val) {
       assert(0 && "error: unknown where_is_value");
       return "";
   }
-  
+
   return addr_reg;
 }
 
@@ -146,15 +143,15 @@ void AssemblyGenerator::Visit(Program *program) {
   LOG("Program");
   // 访问所有全局变量
   fs << ".data" << std::endl;
-  for (auto& glob_alloc : program->values) {
+  for (auto &glob_alloc : program->values) {
     glob_alloc->Accept(this);
   }
   fs << std::endl;
   // 访问所有函数
-  for (auto& func : program->functions) {
+  for (auto &func : program->functions) {
     func->Accept(this);
     reg_allocator->ResetForNewFunction();
-  } 
+  }
 }
 
 void AssemblyGenerator::Visit(Function *func) {
@@ -179,7 +176,7 @@ void AssemblyGenerator::Visit(Function *func) {
     }
     // 将参数存入参数寄存器和栈中
     for (size_t i = 0; i < func->params.size() && i < 8; i++) {
-      auto param = func->params[i].get();
+      auto *param = func->params[i].get();
       reg_allocator->AllocParams(param);
     }
     for (size_t i = 8; i < func->params.size(); i++) {
@@ -188,7 +185,7 @@ void AssemblyGenerator::Visit(Function *func) {
     }
     reg_allocator->ClearTempRegs();
   }
-  for (auto& block : func->blocks) {
+  for (auto &block : func->blocks) {
     block->Accept(this);
   }
   fs << std::endl;
@@ -205,12 +202,11 @@ void AssemblyGenerator::Visit(BasicBlock *block) {
   if (block->name != "entry") {
     fs << block->name << ":" << std::endl;
   }
-  for (auto& stmt : block->stmts) {
+  for (auto &stmt : block->stmts) {
     if (stmt->type == Value_Type::KOOPA_RVT_ALLOC) {
       continue;
-    } else {
-      stmt->Accept(this);
     }
+    stmt->Accept(this);
   }
 }
 
@@ -250,13 +246,13 @@ void AssemblyGenerator::Visit(Value_RETURN *return_val) {
 
 void AssemblyGenerator::Visit(Value_BINARY *binary) {
   LOG("Value_BINARY");
-  
+
   std::string l_r = GetValueReg(binary->lhs.get());
   std::string r_r = GetValueReg(binary->rhs.get());
-  
+
   auto offset = reg_allocator->GetLoc(binary);
   auto res = reg_allocator->Alloc(binary);
-  
+
   switch (binary->type) {
     case Binary_Op_Type::KOOPA_RBO_EQ:
       fs << " xor   " << res << ", " << l_r << ", " << r_r << std::endl;
@@ -321,13 +317,12 @@ void AssemblyGenerator::Visit(Value_ALLOC *alloc) {
 void AssemblyGenerator::Visit(Value_INTEGER *integer) {
   LOG("Value_INTEGER");
   // 遇见整数值直接加载到寄存器
-  std::string r = "";
+  std::string r;
   if (integer->val == 0) {
     r = reg_allocator->AllocZero(integer);
-    return ;
-  } else {
-    r = reg_allocator->Alloc(integer);
+    return;
   }
+  r = reg_allocator->Alloc(integer);
   fs << " li    " << r << ", " << integer->val << std::endl;
 }
 
@@ -340,7 +335,7 @@ void AssemblyGenerator::Visit(Value_LOAD *load) {
   // 读取变量@a的值到寄存器中
   auto src_addr = GetValueAddr(load->src.get());
   fs << " lw    " << result_reg << ", 0(" << src_addr << ")" << std::endl;
-  
+
   StoreWord(result_reg, offset);
   reg_allocator->ClearTempRegs();
 }
@@ -391,17 +386,17 @@ void AssemblyGenerator::Visit(Value_Call *call) {
   }
 }
 
-void AssemblyGenerator::Visit(Value_GLOBOL_ALLOC* glob_alloc) {
+void AssemblyGenerator::Visit(Value_GLOBOL_ALLOC *glob_alloc) {
   // 访问全局分配指令 glob_alloc %0 = @x
   reg_allocator->AllocGlobal(glob_alloc);
   fs << " .globl " << glob_alloc->name.substr(1) << std::endl;
   fs << glob_alloc->name.substr(1) << ":" << std::endl;
-  for (auto& init : glob_alloc->init) {
+  for (auto &init : glob_alloc->init) {
     fs << " .word " << init->name << std::endl;
   }
 }
 
-void AssemblyGenerator::Visit(Value_GET_ELEM_PTR* get_elem_ptr) {
+void AssemblyGenerator::Visit(Value_GET_ELEM_PTR *get_elem_ptr) {
   // %0 = getelemptr @arr, 0
   LOG("Value_GET_ELEM_PTR");
   // 1. 得到数组的基地址
@@ -418,7 +413,7 @@ void AssemblyGenerator::Visit(Value_GET_ELEM_PTR* get_elem_ptr) {
   reg_allocator->ClearTempRegs();
 }
 
-void AssemblyGenerator::Visit(Value_GET_PTR* get_ptr) {
+void AssemblyGenerator::Visit(Value_GET_PTR *get_ptr) {
   // 访问获取指针指令 %1 = getptr %0, 1
   LOG("Value_GET_PTR");
   // 1. 获取基地址

@@ -62,4 +62,16 @@ set(SOURCES ${C_SOURCES} ${CXX_SOURCES} ${CC_SOURCES}
 # executable
 add_executable(compiler ${SOURCES})
 set_target_properties(compiler PROPERTIES C_STANDARD 11 CXX_STANDARD 17)
+
+# clang-tidy 集成
+find_program(CLANG_TIDY_EXE NAMES clang-tidy)
+if(CLANG_TIDY_EXE)
+  set_target_properties(compiler PROPERTIES
+    CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
+  )
+  message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
+else()
+  message(STATUS "clang-tidy not found, skipping")
+endif()
+
 target_link_libraries(compiler koopa pthread dl)
